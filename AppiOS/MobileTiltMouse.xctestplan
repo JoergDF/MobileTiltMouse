@@ -1,0 +1,45 @@
+{
+  "configurations" : [
+    {
+      "id" : "F94F186C-8547-4253-AF7D-3286EEC28115",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "commandLineArgumentEntries" : [
+      {
+        "argument" : "TESTRUN"
+      }
+    ],
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:MobileTiltMouse.xcodeproj",
+      "identifier" : "DE415FE12DEA18B8006542F4",
+      "name" : "MobileTiltMouse"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:MobileTiltMouse.xcodeproj",
+        "identifier" : "DE415FEE2DEA18B9006542F4",
+        "name" : "MobileTiltMouseTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "skippedTests" : [
+        "IntegrationTests\/testSendButtonClicks()"
+      ],
+      "target" : {
+        "containerPath" : "container:MobileTiltMouse.xcodeproj",
+        "identifier" : "DE415FF82DEA18B9006542F4",
+        "name" : "MobileTiltMouseUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
