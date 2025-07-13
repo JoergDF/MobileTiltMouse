@@ -110,9 +110,9 @@ Each packet is 3 bytes with the following format:
 - "client authentication reset" is used internally by the server only.
 
 
-## Self-signed certificate
+## Self-signed certificates
 
-QUIC connection uses a self-signed certificate. 
+QUIC connection uses self-signed certificates for server and client. 
 
 - Create certificate and its private key (output files: cert.pem, key.pem):
   ``` 
@@ -129,22 +129,21 @@ QUIC connection uses a self-signed certificate.
   openssl rsa -inform pem -in key.pem -outform der -out key.der
   ```
   
+- Convert certificate and private file to PKCS#12 (with password `mtm`):
+  ```
+  openssl pkcs12 -export -in cert.pem -inkey key.pem -out cert.p12 -passout pass:mtm
+  ```
+
 - Get hash value of cert.der:
   ```
   shasum -a 256 cert.der
   ```
-  The hash is used to verify the certificate on the client side.
+  The hash is used to verify the certificate.
   
 
 ## Client Authentication
 
-After the QUIC connection is established, the client must authenticate before mouse control is enabled. Authentication uses a hash-based message authentication code (HMAC) with a shared secret key known to both client and server.
-
-The client generates a random 32-byte message and sends it to the server over the encrypted connection, followed by a 32-byte HMAC-SHA256 of that message (using the shared key). The server verifies the HMAC by recalculating it with the received message and the shared key. If the verification succeeds, the client is granted permission to control the mouse pointer.
-
-If authentication fails, the server application is exited.
-
-Client authentication is reset, when connection is re-established.
+The client is authenticated by requesting its certificate on connection setup. The hash of this self-signed certificate is compared against a reference hash. If this check fails, the connection is not established.
 
 
 ## Acknowledgements
@@ -156,7 +155,7 @@ This project uses the following libraries:
 - [rustls](https://crates.io/crates/rustls) - TLS configuration
 - [tokio](https://crates.io/crates/tokio) - connection handling
 - [zeroconf](https://crates.io/crates/zeroconf) - Bonjour/mDNS service
-- [hmac](https://crates.io/crates/hmac) - client authentication with RustCrypto's HMAC
+- [hex-literal](https://https://crates.io/crates/hex-literal) - hex conversion in client authentication 
 - [sha2](https://crates.io/crates/sha2) - client authentication with RustCrypto's hashes
 - [dirs](https://crates.io/crates/dirs) - home directory in integration test
 

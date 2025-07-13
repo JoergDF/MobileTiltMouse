@@ -7,8 +7,11 @@ An iOS application that lets you control your computer's mouse using its corresp
 - Swift
 - SwiftUI
 - Xcode
+- Minimum deployment: iOS 18.0
 - QUIC transport protocol of Apple's network framework
 - Check of self-signed server certificate
+- Client authentication with self-signed client certificate
+- Successfully tested on hardware/iPhone with iOS 18.x (Fails on simulator since iOS 18.4 and MacOS 15.5: network browsing for DNS service - policy denied; Looks like this issue will be fixed in MacOS 15.6 according to [this thread](https://developer.apple.com/forums/thread/780655).)
 
 
 ## Screenshots of User Interface
@@ -35,3 +38,7 @@ The illustrations below show the three positions in which you can hold your phon
 
 When you start the app for the first time on your phone, it will request permission to access the local network. Please confirm this permission.
 
+
+## Client certificate
+
+The creation of the self-signed client certificate of the QUIC connection is described in the [certificate section of the server](../server/README.md#self-signed-certificates). The iOS code requires the PKCS#12 format.

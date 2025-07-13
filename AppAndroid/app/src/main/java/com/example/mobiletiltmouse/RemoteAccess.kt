@@ -27,7 +27,7 @@ class RemoteAccess(val context: Context) {
 
 
     init {
-        connection = Connection(this)
+        connection = Connection(context, this)
         nwBrowser = NetworkBrowser(context, connection, this)
         mouseActions = MouseActions(context, connection)
         networkMonitor = NetworkMonitor(context)

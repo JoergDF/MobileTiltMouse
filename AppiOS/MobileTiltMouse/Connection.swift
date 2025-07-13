@@ -8,13 +8,13 @@ import CryptoKit
 let alpnName = "mobiletiltmouseproto"
 let connectionTimeout = 30  // seconds
 
-/// A class that manages QUIC network connections with the remote server that controls mouse pointer.
+/// Manages QUIC network connections with the remote server that controls mouse pointer.
 ///
 /// The Connection class handles establishing, maintaining and closing secure QUIC connections. 
 /// It provides:
 /// - Secure connection setup with certificate verification 
-/// - Client authentication using HMAC
-/// - Connection state monitoring
+/// - Client authentication using a PKCS#12 client certificate
+/// - Connection state monitoring and UI updates
 /// - Data transmission
 ///
 /// Example usage:
@@ -48,61 +48,123 @@ class Connection {
         self.remoteAccess = remoteAccess
     }
     
-    /// Shows an alert to the user when certificate verification fails.
-    ///
-    /// Sets the global error alert state to display a message indicating that the security
-    /// certificate check failed during connection establishment.
+    /// Shows an alert to the user when server certificate verification fails.
     ///
     /// The alert uses the global `errAlert` observable object to trigger the alert display
     /// in the UI layer.
-    private func certificateAlert() {
+    private func serverCertificateAlert() {
         errAlert.error = true
-        errAlert.message = "Check of security certificate of connection failed."
+        errAlert.message = "Check of server certificate failed."
     }
-        
-    /// Authenticates the client to the server using a shared key and HMAC verification.
-    /// 
-    /// The authentication runs over an already encrypted QUIC connection and follows these steps:
-    /// 1. Uses a predefined 32-byte shared key
-    /// 2. Generates a SHA-512 hash of the key
-    /// 3. Creates a random 32-byte message
-    /// 4. Computes HMAC-SHA256 of the message using the key hash
-    /// 5. Sends both message and its HMAC to server for verification
-    /// 
-    /// The protocol sends two types of packets:
-    /// - Type 0xA: Contains the random message
-    /// - Type 0xB: Contains the HMAC
-    /// 
-    /// Authentication packet format:
-    /// ```
-    /// +--------------+-------------+----------------+
-    /// | 4-bit header | 4-bit zeros | 2 bytes data   |
-    /// +--------------+-------------+----------------+
-    /// ```
-    func authenticateClientToServer() {
-        func sendAuthData(header: Int, data: [UInt8]) {
-            assert(data.count % 2 == 0, "Send authentication: Data size must be even")
-            
-            let headDataByte = UInt8(header << 4)
-            
-            for i in stride(from: 0, to: data.count, by: 2) {
-                send(Data([headDataByte, data[i], data[i+1]]))
-            }
+    
+    /// Shows an alert to the user when client certificate loading fails.
+    ///
+    /// The alert uses the global `errAlert` observable object to trigger the alert display
+    /// in the UI layer.
+    private func clientCertificateAlert() {
+        errAlert.error = true
+        errAlert.message = "Loading of client certificate failed."
+    }
+    
+     
+    /// Loads the self-signed client certificate.
+    ///
+    /// This method attempts to load a PKCS#12 (.p12) client certificate named "ClientCertificate"
+    /// from the app's asset catalog. It imports the certificate and extract the identity required 
+    /// for client authentication in QUIC connections.
+    ///
+    /// Steps performed:
+    /// 1. Loads the PKCS#12 data from the asset catalog.
+    /// 2. Imports the certificate using the provided password.
+    /// 3. Extracts the first identity from the imported items.
+    /// 4. Returns the SecIdentity for use in network security configuration.
+    ///
+    /// If loading or importing fails, logs an error and returns nil.
+    ///
+    /// - Returns: The extracted `SecIdentity` if successful, or `nil` if loading/importing fails.
+    func loadClientCertificate() -> SecIdentity? {
+        guard let p12Data = NSDataAsset(name: "ClientCertificate")?.data else {
+            lgg.error("Error: Could not load client certificate")
+            return nil
         }
-        
-        let key: [UInt8] = [
-            0x24, 0xe3, 0x82, 0x41, 0x55, 0xc6, 0x1d, 0xdc,
-            0x12, 0xe1, 0x8a, 0xc2, 0x02, 0x9f, 0x66, 0x5f,
-            0x24, 0x19, 0xe8, 0x9d, 0x5e, 0x17, 0x6d, 0x55,
-            0x07, 0x74, 0x37, 0x0d, 0x0e, 0x5f, 0xb6, 0x58
-        ]
-
-        let keyHash = SHA512.hash(data: key)
-        let message = (0..<32).map{_ in UInt8.random(in: 0x00...0xFF)}
-        let hmac = HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: keyHash))
-
-        sendAuthData(header: 0xA, data: message)
-        sendAuthData(header: 0xB, data: Array<UInt8>(hmac))
+        let p12Options = [kSecImportExportPassphrase as String: "mtm"]
+        var rawItems: CFArray?
+        let status = SecPKCS12Import(p12Data as CFData, p12Options as CFDictionary, &rawItems)
+        guard status == errSecSuccess else {
+            lgg.error("Error: Could not import client certificate")
+            return nil
+        }
+        let items = rawItems! as! Array<Dictionary<String, Any>>
+        let firstItem = items[0]
+        guard let identity = firstItem[kSecImportItemIdentity as String] as! SecIdentity? else {
+            lgg.error("Error: Could not get identity from client certificate")
+            return nil
+        }
+        return identity
+    }
+    
+    
+    /// Returns a closure verifying self-signed server certificate
+    ///
+    /// 1. Requires exactly one certificate (no CA chain)
+    /// 2. Extracts the certificate in DER format
+    /// 3. Computes SHA-256 hash of the DER data
+    /// 4. Compares against hardcoded reference hash
+    ///
+    /// To generate the reference hash for a new server certificate:
+    /// ```bash
+    /// # Convert certificate from PEM to DER format
+    /// openssl x509 -in cert.pem -outform DER -out cert.der
+    /// # Calculate SHA-256 hash
+    /// shasum -a 256 cert.der
+    /// ```
+    func verifyServerCertificate() -> sec_protocol_verify_t {
+        return { [weak self] (sec_protocol_metadata, sec_trust, completionHandler) in
+            
+            // get received certificate for comparison with reference
+            let secTrustRef = sec_trust_copy_ref(sec_trust).takeRetainedValue() as SecTrust
+            
+            guard let certArray = SecTrustCopyCertificateChain(secTrustRef) as? [SecCertificate] else {
+                lgg.error("Error: No certificate received")
+                self?.serverCertificateAlert()
+                completionHandler(false)
+                return
+            }
+            
+            // there should be only one certificate received
+            let certCount = SecTrustGetCertificateCount(secTrustRef)
+            guard ((certCount == 1) && (certArray.count == 1)) else {
+                lgg.error("Error: Invalid number of certificates: \(certCount) \(certArray.count)")
+                self?.serverCertificateAlert()
+                completionHandler(false)
+                return
+            }
+            
+            // get DER format of received certificate
+            // get its hash value and
+            // compare hash against reference hash
+            let dataDerCF = SecCertificateCopyData(certArray[0])
+            
+            let digest = SHA256.hash(data: dataDerCF as Data)
+            
+            // reference hash of server certificate (in DER format)
+            // is output of command line tool: shasum -a 256 cert.der
+            let referenceCertHash: [UInt8] = [
+                0x4f, 0x4b, 0xf5, 0xb8, 0x6e, 0xa4, 0x3d, 0xbc,
+                0xf9, 0xae, 0x83, 0xd2, 0xcb, 0x6c, 0xfc, 0x0e,
+                0xd8, 0xc9, 0xda, 0x9e, 0xf0, 0x27, 0xb8, 0x02,
+                0x6e, 0xe1, 0x84, 0x81, 0x84, 0x52, 0xf2, 0x14
+            ]
+            if !digest.elementsEqual(referenceCertHash) {
+                lgg.error("Error: Certificate hash is wrong")
+                self?.serverCertificateAlert()
+                completionHandler(false)
+                return
+            }
+            
+            lgg.info("Certificate ok")
+            completionHandler(true)
+        }
     }
     
 
@@ -112,25 +174,11 @@ class Connection {
     /// - Sets application protocol name for ALPN negotiation
     /// - Sets up unidirectional communication
     /// - Configures connection timeout
+    /// - Loading and attaching a self-signed client certificate for mutual TLS authentication
     /// - Verification of self-signed server certificate
     ///
-    /// The certificate verification:
-    /// 1. Requires exactly one certificate (no CA chain)
-    /// 2. Extracts the certificate in DER format
-    /// 3. Computes SHA-256 hash of the DER data
-    /// 4. Compares against hardcoded reference hash
-    ///
-    /// To generate reference hash for a new certificate:
-    /// ```bash
-    /// # Convert certificate from PEM to DER format
-    /// openssl x509 -in cert.pem -outform DER -out cert.der
-    /// # Calculate SHA-256 hash
-    /// shasum -a 256 cert.der
-    /// ```
-    ///
     /// - Returns: Configured NWParameters for QUIC connection
-    /// - Important: The connection will fail if the server's certificate hash doesn't match 
-    ///   the expected value.
+    /// - Important: The connection will fail if certificate checks do not pass.
     func quicNWParameters() -> NWParameters {
         let options = NWProtocolQUIC.Options(alpn: [alpnName])
         options.direction = .unidirectional
@@ -138,60 +186,20 @@ class Connection {
         
         let securityProtocolOptions: sec_protocol_options_t = options.securityProtocolOptions
         
+        // set client certificate
+        if let identity = loadClientCertificate() {
+            sec_protocol_options_set_local_identity(securityProtocolOptions, sec_identity_create(identity)!)
+        } else {
+            clientCertificateAlert()
+        }
+        
+        // verify server certificate
         sec_protocol_options_set_verify_block(
             securityProtocolOptions,
-            { (sec_protocol_metadata,
-               sec_trust,
-               completionHandler
-            ) in
-                
-                // get received certificate for comparison with reference
-                
-                let secTrustRef = sec_trust_copy_ref(sec_trust).takeRetainedValue() as SecTrust
-                
-                guard let certArray = SecTrustCopyCertificateChain(secTrustRef) as? [SecCertificate] else {
-                    lgg.error("Error: No certificate received")
-                    self.certificateAlert()
-                    completionHandler(false)
-                    return
-                }
-                
-                // there should be only one certificate received
-                let certCount = SecTrustGetCertificateCount(secTrustRef)
-                guard ((certCount == 1) && (certArray.count == 1)) else {
-                    lgg.error("Error: Invalid number of certificates: \(certCount) \(certArray.count)")
-                    self.certificateAlert()
-                    completionHandler(false)
-                    return
-                }
-                
-                // get DER format of received certificate
-                // get its hash value and
-                // compare hash against reference hash
-                let dataDerCF = SecCertificateCopyData(certArray[0])
-                
-                let digest = SHA256.hash(data: dataDerCF as Data)
-                
-                // reference hash of server certificate (DER format, in file cert.der)
-                // is output of command line tool: shasum -a 256 cert.der
-                let referenceCertHash: [UInt8] = [
-                    0x4f, 0x4b, 0xf5, 0xb8, 0x6e, 0xa4, 0x3d, 0xbc,
-                    0xf9, 0xae, 0x83, 0xd2, 0xcb, 0x6c, 0xfc, 0x0e,
-                    0xd8, 0xc9, 0xda, 0x9e, 0xf0, 0x27, 0xb8, 0x02,
-                    0x6e, 0xe1, 0x84, 0x81, 0x84, 0x52, 0xf2, 0x14
-                    ]
-                if !digest.elementsEqual(referenceCertHash) {
-                    lgg.error("Error: Certificate hash is wrong")
-                    self.certificateAlert()
-                    completionHandler(false)
-                    return
-                }
-                                
-                lgg.info("Certificate ok")
-                completionHandler(true)
-
-            },
-            .global())
+            verifyServerCertificate(),
+            .global()
+        )
+        
         return NWParameters(quic: options)
     }
     
@@ -203,14 +211,13 @@ class Connection {
     /// - Setup of state monitoring handlers
     /// - Connection viability monitoring
     /// - Path quality monitoring
-    /// - Automatic client authentication when connection becomes viable
     /// Only one connection can be active at a time. Subsequent calls while a connection
     /// exists will be ignored.
     ///
     /// State changes are monitored and trigger UI updates:
     /// - `.ready` → Sets connected status to true
     /// - `.cancelled` → Sets connected status to false
-    /// - `.failed` → Triggers network restart
+    /// - `.failed` → Connectopn stopped
     ///
     /// Example usage:
     /// ```swift
@@ -258,7 +265,7 @@ class Connection {
             case .failed(let err):
                 lgg.info("Connection state: failed, error: \(err, privacy: .public)")
                 networkStatus.connected = false // inform UI about connection status
-                self?.remoteAccess?.restartNetwork()
+                self?.stopConnection()
             default:
                 lgg.info("Connection state: unknown: \(String(describing: newState), privacy: .public)")
             }
@@ -273,9 +280,6 @@ class Connection {
                         lgg.info("Connected over interface type \(String(describing: interface.type), privacy: .public) with name \(interface.name, privacy: .public)")
                     }
                 }
-                
-                // authenticate this client to its server
-                self?.authenticateClientToServer()
             } else {
                 lgg.info("Connection is not viable")
             }
@@ -302,7 +306,6 @@ class Connection {
         connection?.send(content: payload, completion: .contentProcessed({ sendError in
             if let error = sendError {
                 lgg.error("Error sending data: \(error, privacy: .public)")
-                self.remoteAccess?.restartNetwork()
             }
         })
         )

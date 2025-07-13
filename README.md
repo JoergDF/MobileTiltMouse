@@ -1,6 +1,6 @@
 
 # <img src="images/app_icon/icon_mtm_ios.png" alt="App Icon" style="width:5%; height:auto;"> MobileTiltMouse
-Transform your phone into a wireless mouse for your computer. The [iOS app](./AppiOS/README.md) or [Android app](./AppAndroid/README.md) establishes a secure connection via WiFi to a [server application](./server/README.md) running on your computer. Simply incline your phone to move the mouse - the mouse pointer responds smoothly to the angle and tilt of your phone, providing natural and precise control. Perfect for presentations, media control, or whenever a traditional mouse isn't handy.
+Transform your phone into a wireless mouse for your computer. The [iOS app](./AppiOS/) or [Android app](./AppAndroid/) establishes a secure connection via WiFi to a [server application](./server/) running on your computer. Simply incline your phone to move the mouse - the mouse pointer responds smoothly to the angle and tilt of your phone, providing natural and precise control. Perfect for presentations, media control, or whenever a traditional mouse isn't handy.
 
 
 ## Features
@@ -14,10 +14,10 @@ Transform your phone into a wireless mouse for your computer. The [iOS app](./Ap
 - Haptic feedback (vibration) on mouse button press and release
 - WiFi connection status indicated
 - Automatic server discovery within the local WiFi network
-- Encrypted connection with server certificate verification and client authentication
+- Encrypted connection with verification of self-signed certificate of server and client
 - Prevents device sleep while the app is active
 - Supports three positions based on how you prefer to hold your device: horizontal (display upwards) or vertical (display to the left or right)
-- Mouse pointer can be moved only within a single monitor
+- Mouse pointer can be moved within the current computer monitor only, even if multiple monitors are used.
 
 
 ## Screenshots of User Interface (Examples)
@@ -60,8 +60,9 @@ The illustrations below show the three basic positions in which you can hold you
 
 ### Security
 - Encrypted QUIC transport
-- Verification of self-signed server certificate by checking its SHA-256 hash against a reference value
-- HMAC-SHA256 client authentication
+- Self-signed server certificate 
+- Client authentication by self-signed client certificate
+- Verification of both certificates by checking their SHA-256 hashes against reference values
 
 ### Motion Control
 - Device motion tracking for cursor movement and scrolling

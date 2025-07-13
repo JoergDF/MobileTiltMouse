@@ -10,7 +10,8 @@ An Android application that lets you control your computer's mouse using its cor
 - Minimum SDK: API 29 (Android 10)
 - QUIC transport protocol of [Kwik library](https://github.com/ptrd/kwik) 
 - Check of self-signed server certificate
-- Successfully tested on API 29 hardware/phone and API 35 emulator (API 29 emulator fails: Network service cannot discovered)
+- Client authentication with self-signed client certificate
+- Successfully tested on API 29 hardware/phone and API 35 emulator (API 29 emulator fails: Network service cannot be discovered)
 
 ## Screenshots of User Interface
 
@@ -35,6 +36,10 @@ The illustrations below show the three positions in which you can hold your phon
 2. Build and run the app on your phone. The app will automatically connect to the server.
 3. Use your phone's motion to control the mouse cursor.
 
+
+## Client certificate
+
+The creation of the self-signed client certificate of the QUIC connection is described in the [certificate section of the server](../server/README.md#self-signed-certificates).
 
 
 ## Acknowledgements

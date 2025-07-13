@@ -1,10 +1,14 @@
 use quinn::{Endpoint, ServerConfig};
 use quinn::crypto::rustls::QuicServerConfig;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::client::danger::HandshakeSignatureValid;
+use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, UnixTime};
+use rustls::{DigitallySignedStruct, SignatureScheme};
+use sha2::{Sha256, Digest};
+use hex_literal::hex;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::net::Ipv6Addr;
-//use std::net::Ipv4Addr;
 use std::sync::Arc;
 use zeroconf::prelude::*;
 use zeroconf::{MdnsService, ServiceType};
@@ -12,7 +16,6 @@ use enigo::Mouse;
 
 
 mod mouse_control;
-mod auth_client;
 
 
 const ALPN_QUIC_HTTP: &[&[u8]] = &[b"mobiletiltmouseproto"];
@@ -56,7 +59,6 @@ pub async fn connection_handler(mouse: &mut impl Mouse) -> Result<(), Box<dyn Er
 
     // set up quic server
     let server_addr = SocketAddr::new(std::net::IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0); 
-    //let server_addr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192,168,178,34)), 20000); 
     let server_config = configure_server()?;
     let endpoint = Endpoint::server(server_config, server_addr)?;
     println!("My address {:?}", endpoint.local_addr().unwrap());
@@ -76,24 +78,23 @@ pub async fn connection_handler(mouse: &mut impl Mouse) -> Result<(), Box<dyn Er
             let mpsc_tx = mpsc_tx.clone();
             println!("Endpoint accepted");
 
-            // reset client authentication, required after connection has been lost, 
-            // otherwise unauthorized clients could connect without authentication
-            mpsc_tx.send([0xF0, 0x00, 0x00]).await.unwrap();
-
             tokio::spawn(async move {
                 // sometimes connection establishment (of iOS client) cannot be completed and waits here till timeout 
                 // (leads to error, which is ignored), but a second attempt is done which then works (in another thread)
                 let connection = conn.await;
-
-                println!("Connection accepted from {}", connection.clone().unwrap().remote_address());
-                
-                while let Ok(mut recv) = connection.clone().unwrap().accept_uni().await {
-                    println!("Incoming uni-directional stream accepted");
-                    let mut data= [0u8; 3];
-                    while let Ok(()) = recv.read_exact(&mut data).await {
-                        // forward received data to mpsc channel
-                        mpsc_tx.send(data).await.unwrap();
+                if let Ok(connection) = connection {
+                    println!("Connection accepted from {}", connection.remote_address());
+                    
+                    while let Ok(mut recv) = connection.accept_uni().await {
+                        println!("Incoming uni-directional stream accepted");
+                        let mut data= [0u8; 3];
+                        while let Ok(()) = recv.read_exact(&mut data).await {
+                            // forward received data to mpsc channel
+                            mpsc_tx.send(data).await.unwrap();
+                        }
                     }
+                } else {
+                    eprintln!("Failed to establish connection: {:?}", connection.err());
                 }
             });
         }
@@ -110,13 +111,105 @@ pub async fn connection_handler(mouse: &mut impl Mouse) -> Result<(), Box<dyn Er
 }
 
 
-/// Configures the QUIC server with TLS certificates and transport settings.
+/// A custom client certificate verifier for the QUIC server.
+///
+/// `ClientCert` implements the [`rustls::server::danger::ClientCertVerifier`] trait,
+/// allowing the server to authenticate clients using a specific certificate fingerprint.
+/// This is used to restrict access so that only clients with the correct certificate can connect.
+///
+/// The verification logic checks the SHA-256 hash of the presented client certificate
+/// against a hardcoded value. If the hash matches, the client is accepted; otherwise,
+/// the connection is rejected. 
+/// 
+/// The hash is derived from the DER format of the client certificate by the command:
+/// `shasum -a 256 client_cert.der`
+/// 
+/// # Usage
+/// Used internally in [`configure_server`] to enforce client authentication.
+///
+#[derive(Debug)]
+struct ClientCert;
+
+#[allow(unused_variables)]
+impl ClientCertVerifier for ClientCert {
+    fn root_hint_subjects(&self) -> &[rustls::DistinguishedName] 
+    {
+        // not required for this project
+        &[]
+    }
+
+    fn verify_client_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        now: UnixTime,
+    ) -> Result<ClientCertVerified, rustls::Error>
+    {
+        let hash = Sha256::digest(end_entity);
+        if hash[..] == hex!("019641942271cf481efdb9416b0a06e5ae42f1d8d28dd30ecf6946149fdbc002") {
+            println!("Client certificate verified successfully");
+            Ok(ClientCertVerified::assertion())
+        } else {
+            Err(rustls::Error::General("Client certificate verification failed".into()))
+        }
+    }
+    
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error>
+    {
+        // ignored
+        Ok(HandshakeSignatureValid::assertion())
+    }
+    
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error>
+    {
+        // ignored
+        Ok(HandshakeSignatureValid::assertion())
+    }
+    
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme>
+    {
+        // a signature scheme supported by the client need to be sent, 
+        // otherwise the client will not send its certificate
+        vec![SignatureScheme::RSA_PSS_SHA256]
+    }
+}
+
+
+/// Configures the QUIC server with TLS certificates, client authentication, and transport settings.
+///
+/// This function prepares a [`quinn::ServerConfig`] for use with a QUIC server. It:
+/// - Loads the server certificate and private key from embedded DER files.
+/// - Sets up a custom client certificate verifier (`ClientCert`) to restrict access to clients
+///   presenting a certificate with a specific SHA-256 fingerprint.
+/// - Configures ALPN protocols for QUIC negotiation.
+/// - Limits the number of concurrent incoming unidirectional streams to 1 per connection.
+/// - Enables keep-alive to maintain connections.
+///
+/// # Returns
+/// * `Ok(ServerConfig)` if configuration succeeds.
+/// * `Err` if certificate, key, or transport configuration fails.
+///
+/// # Errors
+/// Returns an error if:
+/// - The certificate or key cannot be parsed.
+/// - The QUIC or TLS configuration fails.
+///
 fn configure_server() -> Result<ServerConfig, Box<dyn Error + Send + Sync + 'static>> {
     let cert_der = CertificateDer::from(CERT);
     let priv_key = PrivateKeyDer::try_from(KEY)?;
 
     let mut server_crypto = rustls::ServerConfig::builder()
-        .with_no_client_auth()
+        .with_client_cert_verifier(Arc::new(ClientCert))
         .with_single_cert(vec![cert_der.clone()], priv_key.into())?;
     server_crypto.alpn_protocols = ALPN_QUIC_HTTP.iter().map(|&x| x.into()).collect();
 
@@ -129,11 +222,10 @@ fn configure_server() -> Result<ServerConfig, Box<dyn Error + Send + Sync + 'sta
     transport_config.max_concurrent_uni_streams(1_u8.into());
     // enable keep alive
     transport_config.keep_alive_interval(Some(std::time::Duration::from_secs(20)));
-    // connection timeout (disable: None, default: 30 seconds)
-    //transport_config.max_idle_timeout( None );
     
     Ok(server_config)
 }
+
 
 /// Initializes a file-based logger for tokyo/quinn library.
 ///

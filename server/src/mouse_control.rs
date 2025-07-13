@@ -1,7 +1,5 @@
 use enigo::{Button, Direction, Mouse, Axis, Coordinate};
 
-use crate::auth_client::ClientAuthentication;
-
 
 /// Tracks the current state of mouse buttons.
 ///
@@ -27,14 +25,12 @@ struct ButtonPressed {
 
 pub struct MouseControl {
     button_pressed: ButtonPressed,
-    auth: ClientAuthentication,
 }
 
 impl MouseControl {
     pub fn new() -> Self {
         MouseControl {
             button_pressed: ButtonPressed::default(),
-            auth: ClientAuthentication::new(),
         }
     }
 
@@ -75,7 +71,6 @@ impl MouseControl {
     /// 
     /// # Protocol
     /// 
-    /// If client is authenticated:
     /// - `0x0`: Mouse movement
     ///   - 10-bit signed X movement in lower bits
     ///   - 10-bit signed Y movement in middle bits
@@ -86,117 +81,85 @@ impl MouseControl {
     ///   - `0x0/0x1`: Left button press/release
     ///   - `0x2/0x3`: Middle button press/release
     ///   - `0x4/0x5`: Right button press/release
-    /// - `0xF`: Reset authentication
-    /// 
-    /// If client is not authenticated:
-    /// - `0xA`: Message authentication
-    /// - `0xB`: HMAC verification
-    /// - `0xF`: Reset authentication
     /// 
     pub fn mouse_action(&mut self, dat: [u8; 3], mouse: &mut impl Mouse) {
-        if self.auth.verified {
-            let data = ((dat[0] as u32) << 16) | ((dat[1] as u32) << 8) | (dat[2] as u32);
-            //println!("{:06x}", data);
+        let data = ((dat[0] as u32) << 16) | ((dat[1] as u32) << 8) | (dat[2] as u32);
+        //println!("{:06x}", data);
 
-            let header = (data & 0xF00000) >> 20;
-            match header {
-                0x0 => {
-                    // move cursor
-                    let payload_x = (((data & 0x03FF) as i32) << 22) >> 22;
-                    let payload_y = (((data & (0x03FF << 10)) as i32) << 12) >> 22;
+        let header = (data & 0xF00000) >> 20;
+        match header {
+            0x0 => {
+                // move cursor
+                let payload_x = (((data & 0x03FF) as i32) << 22) >> 22;
+                let payload_y = (((data & (0x03FF << 10)) as i32) << 12) >> 22;
 
-                    let loc = mouse.location().unwrap();
-                    let display_size = mouse.main_display().unwrap();
-                    let x = self.adjust_move(payload_x, loc.0, display_size.0);
-                    let y = self.adjust_move(payload_y, loc.1, display_size.1);
-                    mouse.move_mouse(x, y, Coordinate::Rel).expect("Unable to move mouse");
-                },
-                0x1 => { 
-                    // scroll page
-                    let payload_x = (((data & 0x03FF) as i32) << 22) >> 22;
-                    let payload_y = (((data & (0x03FF << 10)) as i32) << 12) >> 22;
+                let loc = mouse.location().unwrap();
+                let display_size = mouse.main_display().unwrap();
+                let x = self.adjust_move(payload_x, loc.0, display_size.0);
+                let y = self.adjust_move(payload_y, loc.1, display_size.1);
+                mouse.move_mouse(x, y, Coordinate::Rel).expect("Unable to move mouse");
+            },
+            0x1 => { 
+                // scroll page
+                let payload_x = (((data & 0x03FF) as i32) << 22) >> 22;
+                let payload_y = (((data & (0x03FF << 10)) as i32) << 12) >> 22;
 
-                    // horizontal scroll
-                    mouse.scroll(payload_x, Axis::Horizontal).expect("Unable to scroll horizontally");
-                    // vertical scroll
-                    mouse.scroll(payload_y, Axis::Vertical).expect("Unable to scroll vertically");
-                },
-                0x2 => {
-                    let payload = data & 0x0FFFFF;
-                    match payload {
-                        0x0  => {
-                            if self.button_pressed.left == false {
-                                mouse.button(Button::Left, Direction::Press).expect("Unable to press left mouse button");
-                                self.button_pressed.left = true;
-                            }
-                        }, 
-                        0x1 => {
-                            if self.button_pressed.left == true {
-                                mouse.button(Button::Left, Direction::Release).expect("Unable to release left mouse button");
-                                self.button_pressed.left = false;
-                            }
-                        },
-                        0x2 => {
-                            if self.button_pressed.middle == false {
-                                mouse.button(Button::Middle, Direction::Press).expect("Unable to press middle mouse button");
-                                self.button_pressed.middle = true;
-                            }
-                        },
-                        0x3 => {
-                            if self.button_pressed.middle == true {
-                                mouse.button(Button::Middle, Direction::Release).expect("Unable to release middle mouse button");
-                                self.button_pressed.middle = false;
-                            }
-                        },
-                        0x4 => {
-                            if self.button_pressed.right == false {
-                                mouse.button(Button::Right, Direction::Press).expect("Unable to press right mouse button");
-                                self.button_pressed.right = true;
-                            }
-                        },
-                        0x5 => {
-                            if self.button_pressed.right == true {
-                                mouse.button(Button::Right, Direction::Release).expect("Unable to release right mouse button");
-                                self.button_pressed.right = false;
-                            }
-                        },
-                        _ => {
-                            // ignore
-                            println!("Ignored: {:x}", payload);
+                // horizontal scroll
+                mouse.scroll(payload_x, Axis::Horizontal).expect("Unable to scroll horizontally");
+                // vertical scroll
+                mouse.scroll(payload_y, Axis::Vertical).expect("Unable to scroll vertically");
+            },
+            0x2 => {
+                let payload = data & 0x0FFFFF;
+                match payload {
+                    0x0  => {
+                        if self.button_pressed.left == false {
+                            mouse.button(Button::Left, Direction::Press).expect("Unable to press left mouse button");
+                            self.button_pressed.left = true;
                         }
+                    }, 
+                    0x1 => {
+                        if self.button_pressed.left == true {
+                            mouse.button(Button::Left, Direction::Release).expect("Unable to release left mouse button");
+                            self.button_pressed.left = false;
+                        }
+                    },
+                    0x2 => {
+                        if self.button_pressed.middle == false {
+                            mouse.button(Button::Middle, Direction::Press).expect("Unable to press middle mouse button");
+                            self.button_pressed.middle = true;
+                        }
+                    },
+                    0x3 => {
+                        if self.button_pressed.middle == true {
+                            mouse.button(Button::Middle, Direction::Release).expect("Unable to release middle mouse button");
+                            self.button_pressed.middle = false;
+                        }
+                    },
+                    0x4 => {
+                        if self.button_pressed.right == false {
+                            mouse.button(Button::Right, Direction::Press).expect("Unable to press right mouse button");
+                            self.button_pressed.right = true;
+                        }
+                    },
+                    0x5 => {
+                        if self.button_pressed.right == true {
+                            mouse.button(Button::Right, Direction::Release).expect("Unable to release right mouse button");
+                            self.button_pressed.right = false;
+                        }
+                    },
+                    _ => {
+                        // ignore
+                        println!("Ignored: {:x}", payload);
                     }
-                },
-                0xF => {
-                    self.auth.reset();
-                },
-                _ => {
-                    // ignore
-                    println!("Ignored header: {:02x}", header);
                 }
-            }
-        } else {
-            // client not yet authenticated
-            let header = (dat[0] & 0xF0) >> 4;
-            //println!("{:02x} {:02x} {:02x}", header, dat[1], dat[2]);
-            match header {
-                0xA => {
-                    self.auth.add_message([dat[1], dat[2]]);
-                },
-                0xB => {
-                    self.auth.add_hmac([dat[1], dat[2]]);
-                },
-                0xF => {
-                    self.auth.reset();
-                },
-                _ => {
-                    // ignore
-                    println!("Auth - ignored header: {:02x}", header);
-                }
+            },
+            _ => {
+                // ignore
+                println!("Ignored header: {:02x}", header);
             }
         }
-
     }
-
 }
 
 
@@ -278,8 +241,6 @@ mod tests {
         };
         let mut mc = MouseControl::new();
 
-        mc.auth.verified = true;
-
         // x += 0, y += 0
         mc.mouse_action([0x00, 0x00, 0x00], &mut mouse);
         assert_eq!(mouse.location, (10, 10));
@@ -320,8 +281,6 @@ mod tests {
         };
         let mut mc = MouseControl::new();
 
-        mc.auth.verified = true;
-
         // x += 0, y += 0
         mc.mouse_action([0x10, 0x00, 0x00], &mut mouse);
         assert_eq!(mouse.location, (10, 10));
@@ -360,8 +319,6 @@ mod tests {
             button_pressed: ButtonPressed::default(),
         };
         let mut mc = MouseControl::new();
-
-        mc.auth.verified = true;
 
         // press left button
         mc.mouse_action([0x20, 0x00, 0x00], &mut mouse);
@@ -432,36 +389,4 @@ mod tests {
         assert_eq!(mc.button_pressed.right, false);
     }
 
-    #[test]
-    fn mouse_clientauth_test() {
-        let mut mouse = MockMouse::default();
-        let mut mc = MouseControl::new();
-
-        // auth reset
-        mc.auth.verified = true;
-        mc.mouse_action([0xF0, 0x00, 0x00], &mut mouse);
-        assert_eq!(mc.auth.verified, false);
-
-        mc.auth.verified = false;
-        mc.mouse_action([0xF0, 0x00, 0x00], &mut mouse);
-        assert_eq!(mc.auth.verified, false);
-
-    }
-
-    #[test]
-    #[should_panic(expected = "Client authentication failed")]
-    fn mouse_auth_failure_test() {
-        let mut mouse = MockMouse::default();
-        let mut mc = MouseControl::new();
-
-        // message
-        for _ in 0..16 {
-            mc.mouse_action([0xA0, 0x01, 0x02], &mut mouse);
-        }
-
-        // hmac
-        for _ in 0..16 {
-            mc.mouse_action([0xB0, 0x11, 0x22], &mut mouse);
-        }
-    }
 }

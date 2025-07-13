@@ -4,17 +4,20 @@ package com.example.mobiletiltmouse
 // https://github.com/ptrd/kwik
 // https://github.com/ptrd/agent15
 
+import android.content.Context
 import java.net.URI
 import android.util.Log
 import tech.kwik.agent15.env.PlatformMapping
 import tech.kwik.core.QuicClientConnection
 import tech.kwik.core.QuicStream
 import tech.kwik.core.log.SysOutLogger
+import java.security.KeyFactory
 import java.security.MessageDigest
-import java.security.SecureRandom
+import java.security.PrivateKey
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
+import java.security.spec.PKCS8EncodedKeySpec
 import java.time.Duration
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 
 private const val ALPN = "mobiletiltmouseproto"
@@ -43,7 +46,7 @@ private const val TAG = "Connection"
  *
  * @param remoteAccess An optional RemoteAccess instance to manage network state and reconnection logic.
  */
-open class Connection(val remoteAccess: RemoteAccess?) {
+open class Connection(private val context: Context?, val remoteAccess: RemoteAccess?) {
     var connection: QuicClientConnection? = null
     var quicStream: QuicStream? = null
     var savedAddressWithPort: String? = null
@@ -57,18 +60,39 @@ open class Connection(val remoteAccess: RemoteAccess?) {
     }
 
     /**
+     * Shows an alert to the user when client certificate loading fails.
+     *
+     * The alert uses the global ErrorAlert object to trigger the alert display
+     * in the UI layer.
+     */
+    private fun clientCertificateAlert() {
+        ErrorAlert.show = true
+        ErrorAlert.message = "Loading of client certificate failed."
+    }
+
+    /**
+     * Shows an alert to the user when server certificate verification fails.
+     *
+     * The alert uses the global ErrorAlert object to trigger the alert display
+     * in the UI layer.
+     */
+    private fun serverCertificateAlert() {
+        ErrorAlert.show = true
+        ErrorAlert.message = "Check of server certificate failed."
+    }
+
+    /**
      * Validates the provided server certificate by comparing its SHA-256 hash with a predefined
      * reference hash.
      *
      * The certificate must be in the binary DER format. This function computes the SHA-256 digest
-     * of the certificate and checks whether it exactly matches the known reference hash obtained
-     * from a trusted source (e.g., output of "shasum -a 256 cert.der").
+     * of the certificate and checks whether it exactly matches the known reference hash.
      *
      * @param serverCert The server certificate in DER format as a ByteArray.
      * @return True if the certificate's hash matches the reference hash; false otherwise.
      */
     @OptIn(ExperimentalStdlibApi::class)
-    fun checkCertificate(serverCert: ByteArray): Boolean {
+    fun checkServerCertificate(serverCert: ByteArray): Boolean {
         // reference hash of server certificate (DER format, in file cert.der)
         // can be retrieved from command line tool: shasum -a 256 cert.der
         val referenceCertHash =
@@ -79,60 +103,34 @@ open class Connection(val remoteAccess: RemoteAccess?) {
     }
 
     /**
-     * Authenticates the client to the server.
+     * Loads the client certificate from the app's assets.
      *
-     * This function performs client authentication using the following steps:
-     * 1. Generates a key from a predefined byte array and hashes it using SHA-512.
-     * 2. Creates a random 32-byte message.
-     * 3. Initializes an HMAC-SHA256 MAC instance with the derived key and computes the digest of
-     *    the random message.
-     * 4. Sends the authentication data in two parts:
-     *    - The random message is sent with header 0xA.
-     *    - The computed HMAC digest is sent with header 0xB.
+     * This function reads the "cert_client.der" file from the application's assets directory,
+     * parses it as an X.509 certificate, and returns it as an X509Certificate object.
+     * The certificate is expected to be in DER (binary) format.
      *
-     * The helper function `sendAuthData` is used to split the data into even-sized chunks and
-     * transmit each with its header.
-     *
-     * Authentication packet format:
-     * ```
-     * +--------------+-------------+----------------+
-     * | 4-bit header | 4-bit zeros | 2 bytes data   |
-     * +--------------+-------------+----------------+
-     * ```
+     * @return The loaded X509Certificate instance representing the client certificate.
      */
-     fun authenticateClientToServer() {
-        fun sendAuthData(header: Int, data: ByteArray) {
-            check(data.size % 2 == 0) { "Send authentication: Data size must be even" }
+    fun loadClientCertificate(): X509Certificate {
+        val inputStream = context!!.assets.open("cert_client.der")
+        val cf = CertificateFactory.getInstance("X.509")
+        return cf.generateCertificate(inputStream) as X509Certificate
+    }
 
-            val headDataByte = (header shl 4).toByte()
-
-            val chunks = data.toList().chunked(2)
-            chunks.forEach {
-                send(byteArrayOf(headDataByte) + it)
-            }
-        }
-
-        var key = arrayOf(
-            0x24, 0xe3, 0x82, 0x41, 0x55, 0xc6, 0x1d, 0xdc,
-            0x12, 0xe1, 0x8a, 0xc2, 0x02, 0x9f, 0x66, 0x5f,
-            0x24, 0x19, 0xe8, 0x9d, 0x5e, 0x17, 0x6d, 0x55,
-            0x07, 0x74, 0x37, 0x0d, 0x0e, 0x5f, 0xb6, 0x58
-        ).map { it.toByte() }.toByteArray()
-
-        val md = MessageDigest.getInstance("SHA-512")
-        key = md.digest(key)
-
-        val message = ByteArray(32)
-        SecureRandom().nextBytes(message)
-
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(key, "HmacSHA256"))
-        val hmac = mac.doFinal(message)
-
-        Log.d(TAG, "Send client authentication")
-
-        sendAuthData(0xA, message)
-        sendAuthData(0xB, hmac)
+    /**
+     * Loads the client private key from the app's assets.
+     *
+     * This function reads the "key_client.der" file from the application's assets directory,
+     * interprets it as a PKCS#8 encoded RSA private key, and returns it as a PrivateKey object.
+     * The key file must be in DER (binary) format.
+     *
+     * @return The loaded PrivateKey instance representing the client's private key.
+     */
+     fun loadClientKey(): PrivateKey {
+         val keyBytes = context!!.assets.open("key_client.der").readBytes()
+         val keySpec = PKCS8EncodedKeySpec(keyBytes)
+         val keyFactory = KeyFactory.getInstance("RSA")
+         return keyFactory.generatePrivate(keySpec)
     }
 
     /**
@@ -140,10 +138,11 @@ open class Connection(val remoteAccess: RemoteAccess?) {
      *
      * This function initiates a connection using the tech.kwik QUIC client library. It performs the following steps:
      * - Uses the provided server address (or a previously saved address) to build a connection URI.
+     * - Loads the client certificate and private key from the app's assets and configures them for mutual TLS authentication.
      * - Configures and creates a new QUIC client connection with specified timeouts and logging.
      * - Attempts to establish the connection and verifies that it is connected.
      * - Validates the server certificate against a predefined reference hash.
-     * - Creates a communication stream and authenticates the client.
+     * - Creates a communication stream.
      * - Sets the connection as active by updating the network state.
      *
      * If no server address is available, the function logs the issue and aborts without connecting.
@@ -168,8 +167,21 @@ open class Connection(val remoteAccess: RemoteAccess?) {
             return
         }
 
+        // load client certificate and key
+        val clientCert: X509Certificate
+        val clientKey: PrivateKey
+        try {
+            clientCert = loadClientCertificate()
+            clientKey = loadClientKey()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading client certificate: $e")
+            clientCertificateAlert()
+            throw e
+        }
+
         Log.d(TAG, "Connection start to $savedAddressWithPort")
 
+        // establish connection
         try {
             connection = QuicClientConnection.newBuilder()
                 .uri(URI("$ALPN://$savedAddressWithPort"))
@@ -177,6 +189,8 @@ open class Connection(val remoteAccess: RemoteAccess?) {
                 .logger(log)
                 .connectTimeout(Duration.ofSeconds(30))
                 .noServerCertificateCheck()
+                .clientCertificate(clientCert)
+                .clientCertificateKey(clientKey)
                 .build()
             Log.d(TAG, "Connection created")
             connection?.connect()
@@ -189,18 +203,16 @@ open class Connection(val remoteAccess: RemoteAccess?) {
 
         Log.d(TAG, "Connected to ${connection?.serverAddress}")
 
-        if (!checkCertificate(connection!!.serverCertificateChain[0].encoded)) {
-            ErrorAlert.show = true
-            ErrorAlert.message = "Check of server certificate failed."
+        // verify server certificate
+        if (!checkServerCertificate(connection!!.serverCertificateChain[0].encoded)) {
             Log.e(TAG, ErrorAlert.message)
+            serverCertificateAlert()
             return
         }
         Log.d(TAG, "Server certificate check passed")
 
         quicStream = connection?.createStream(false)
         Log.d(TAG, "Stream created")
-
-        authenticateClientToServer()
 
         NetworkState.isConnected = true
     }

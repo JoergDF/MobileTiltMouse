@@ -1,0 +1,13 @@
+{
+  "data" : [
+    {
+      "filename" : "cert.p12",
+      "idiom" : "universal",
+      "universal-type-identifier" : "com.rsa.pkcs-12"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

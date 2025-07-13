@@ -9,7 +9,7 @@ import org.mockito.kotlin.*
 
 class ConnectionTest {
 
-    class MockConnection : Connection(null) {
+    class MockConnection : Connection(null, null) {
         var sendData = mutableListOf<ByteArray>()
         override fun send(data: ByteArray) {
             sendData.add(data)
@@ -19,7 +19,7 @@ class ConnectionTest {
     @Test
     fun init() {
         val mockRemoteAccess =  mock<RemoteAccess>()
-        val conn = Connection(mockRemoteAccess)
+        val conn = Connection(null, mockRemoteAccess)
 
         assertEquals(conn.connection, null)
         assertEquals(conn.quicStream, null)
@@ -29,7 +29,7 @@ class ConnectionTest {
 
     @Test
     fun startConnection() {
-        val conn = Connection(null)
+        val conn = Connection(null, null)
 
         conn.startConnection(null)
         assertEquals(conn.savedAddressWithPort, null)
@@ -51,7 +51,7 @@ class ConnectionTest {
     fun stopConnection() {
         val mockQuicClientConnection = mock<QuicClientConnection>()
         val mockQuicStream = mock<QuicStream>()
-        val conn = Connection(null)
+        val conn = Connection(null, null)
 
         conn.connection = mockQuicClientConnection
         conn.quicStream = mockQuicStream
@@ -65,22 +65,11 @@ class ConnectionTest {
     }
 
     @Test
-    fun checkCertificate() {
-        val conn = Connection(null)
+    fun checkServerCertificate() {
+        val conn = Connection(null, null)
 
         // empty or invalid certificate
-        assertFalse(conn.checkCertificate(byteArrayOf()))
-        assertFalse(conn.checkCertificate(byteArrayOf(0x01, 0x02, 0x03)))
-    }
-
-    @Test
-    fun authenticateClientToServer() {
-        val conn = MockConnection()
-
-        conn.authenticateClientToServer()
-        assertEquals(conn.sendData.size, 32)
-
-        assertTrue(conn.sendData.slice( 0..15).all { it[0] == 0xA0.toByte() })
-        assertTrue(conn.sendData.slice(16..31).all { it[0] == 0xB0.toByte() })
+        assertFalse(conn.checkServerCertificate(byteArrayOf()))
+        assertFalse(conn.checkServerCertificate(byteArrayOf(0x01, 0x02, 0x03)))
     }
 }

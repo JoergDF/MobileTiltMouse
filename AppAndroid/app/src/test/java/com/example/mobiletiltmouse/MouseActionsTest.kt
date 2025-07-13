@@ -11,7 +11,7 @@ import org.junit.Assert.*
 
 class MouseActionsTest {
 
-    class MockConnection : Connection(null) {
+    class MockConnection : Connection(null, null) {
         var sendData = mutableListOf<ByteArray>()
         override fun send(data: ByteArray) {
             sendData.add(data)
