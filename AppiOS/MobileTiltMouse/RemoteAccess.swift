@@ -1,54 +1,43 @@
 import Foundation
 
-/// A class that coordinates network connectivity, device discovery, and mouse control functionality.
+/// Coordinates remote control functionalities by managing network discovery,
+/// device pairing, connection handling, mouse action execution, and network monitoring.
 ///
-/// The RemoteAccess class manages three main components:
-/// - Network connection handling via [`Connection`](Connection.swift)
-/// - Service discovery using [`NetworkBrowser`](NetworkBrowser.swift)
-/// - Mouse pointer control through [`MouseActions`](MouseActions.swift)
-/// - Network monitoring via [`NetworkMonitor`](NetworkMonitor.swift)
+/// Start sequence:
+/// 1. Search server in network - NetworkBrowser()
+/// 2. Connect to server - Connection()
+/// 3. Check Pairing with server - Pairing()
+/// 4. Start mouse control - MouseActions()
+/// Each class calls the start of the next step (and might pass parameters).
 ///
-/// Example usage:
-/// ```swift
-/// // Create and initialize remote access
-/// let remoteAccess = RemoteAccess()
-/// 
-/// // Start network discovery and motion updates
-/// remoteAccess.startRemoteAccess()
-/// 
-/// // Stop all remote access functionality
-/// remoteAccess.stopRemoteAccess()
-/// ```
+/// Network monitoring starts automatically on initialization to inform the user about network interface availability.
 ///
-/// - Important: Network monitoring starts automatically on initialization to detect
-///   network interface availability.
+/// - Parameters:
+///     - errAlert: For showing error alert
+///     - networkStatus: Status of network connectivity
+///     - pairingStatus: Status of pairing process
+///
 class RemoteAccess {
     var connection: Connection?
     var nwBrowser: NetworkBrowser?
     var mouseAction: MouseActions?
+    var pairing: Pairing?
     
-    init() {
-        connection = Connection(self)
-        if let connection {
-            nwBrowser = NetworkBrowser(connection: connection)
-            mouseAction = MouseActions(connection: connection)
-            NetworkMonitor().startMonitoring()
-        }
+    init(errAlert: ErrorAlert, networkStatus: NWStatus, pairingStatus: PairingStatus) {
+        mouseAction = MouseActions()
+        pairing = Pairing(mouseAction: mouseAction, pairingStatus: pairingStatus, networkStatus: networkStatus)
+        connection = Connection(errAlert: errAlert, networkStatus: networkStatus, pairing: pairing)
+        nwBrowser = NetworkBrowser(networkStatus: networkStatus, connection: connection)
+        
+        NetworkMonitor(networkStatus: networkStatus).startMonitoring()
     }
     
     func startRemoteAccess() {
         nwBrowser?.startBrowsing()
-        mouseAction?.startMotionUpdate()
     }
     
     func stopRemoteAccess() {
         mouseAction?.stopMotionUpdate()
         connection?.stopConnection()
-    }
-    
-    func restartNetwork() {
-        connection?.stopConnection()
-        nwBrowser?.stopBrowsing()
-        nwBrowser?.startBrowsing()
     }
 }

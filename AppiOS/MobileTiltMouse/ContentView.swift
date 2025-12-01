@@ -1,18 +1,46 @@
 import SwiftUI
 
+
+/// Error alert state for displaying connection and certificate errors
+///
+/// Properties:
+/// - error: Boolean flag to show/hide the alert
+/// - message: Text to display in the alert
+@Observable class ErrorAlert {
+    var error = false
+    var message = ""
+}
+
+/// Network status state tracking connection and interface availability
+///
+/// Properties:
+/// - connected: True when connected to a server
+/// - interfaceDisabled: True when WiFi interface is unavailable
+@Observable class NWStatus {
+    var connected = false
+    var interfaceDisabled = false
+}
+
+/// Pairing status for managing device pairing UI
+///
+/// Properties:
+/// - showCodeEntry: A boolean to control the visibility of the pairing code entry view.
+/// - codeRejected: A boolean that is true when the entered pairing code was rejected by the server.
+@Observable class PairingStatus {
+    var showCodeEntry: Bool = false
+    var codeRejected: Bool = false
+}
+
+
 /// The main view of the app that coordinates mouse controls and settings.
 ///
 /// The view manages several key components:
-/// - Mouse button controls via [`MouseButtonsView`](MouseButtonsView.swift)
-/// - Mouse toggles via [`MouseTogglesView`](MouseTogglesView.swift)
-/// - Settings sheet for configuration via [`SettingsView`](SettingsView.swift)
+/// - Mouse button controls via ``MouseButtonsView``
+/// - Mouse toggles via ``MouseTogglesView``
+/// - Settings sheet for configuration via ``SettingsView``
+/// - Pairing fullscreen cover for code entry via ``PairingView``
 /// - Network status indicators
 /// - Error alerts
-///
-/// The view integrates with:
-/// - [`RemoteAccess`](RemoteAccess.swift) for network and mouse control functionality
-/// - [`networkStatus`](MobileMouseApp.swift) for connection state
-/// - [`errAlert`](MobileMouseApp.swift) for error handling
 ///
 /// Scene Phase Handling:
 /// - `.active`: Prevents sleep mode, starts remote access
@@ -27,24 +55,28 @@ import SwiftUI
 /// - Displays connection status through icon changes
 /// - Presents error alerts for connection issues
 ///
-/// - Note: In UI testing mode, network functionality is disabled and settings are reset
+/// In testing mode (UITesting/testRun), network functionality is disabled.
+/// For UI testing settings are reset and special buttons are added
+/// 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     
-    @AppStorage("UITesting") private var UITesting = false
+    @AppStorage("UITesting")  private var UITesting  = false
     @AppStorage("stopCursor") private var stopCursor = false
     @AppStorage("scrollPage") private var scrollPage = false
     @AppStorage("mouseSpeed") private var mouseSpeed = 5.0
     @State private var showMouseButton = UserDefaults.standard.array(forKey: "showMouseButton") as? [Bool] ?? [true, true, true]
     @State private var showSettings = false
+    
+    @Bindable var errAlert = ErrorAlert()
+    @Bindable var networkStatus = NWStatus()
+    @Bindable var pairingStatus = PairingStatus()
+    
     @State private var remoteAccess: RemoteAccess?
     @State private var testRun: Bool = ProcessInfo.processInfo.arguments.contains("TESTRUN")  // set in .xctestplan (for unit tests, not UI/XCTestCase tests)
     
        
     var body : some View {
-        @Bindable var errAlert = errAlert
-        @Bindable var networkStatus = networkStatus
-        
         NavigationStack {
             VStack {
                 MouseTogglesView(mouseAction: remoteAccess?.mouseAction,
@@ -63,6 +95,9 @@ struct ContentView: View {
                     Button("UITestError") {
                         errAlert.message = "UITestError"
                         errAlert.error = true
+                    }
+                    Button("UITestPairing") {
+                        pairingStatus.showCodeEntry = true
                     }
                 }
             }
@@ -91,16 +126,24 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showSettings) {
                 VStack {
-                    SettingsView(mouseAction: remoteAccess?.mouseAction, showMouseButton: $showMouseButton, mouseSpeed: $mouseSpeed)
-                        .presentationDetents([.medium, .large])
+                    SettingsView(
+                        pairing: remoteAccess?.pairing,
+                        mouseAction: remoteAccess?.mouseAction,
+                        showMouseButton: $showMouseButton,
+                        mouseSpeed: $mouseSpeed
+                    ).presentationDetents([.medium, .large])
                     Spacer()
                 }.background(Color.blue.opacity(0.2))
+            }
+            .fullScreenCover(isPresented: $pairingStatus.showCodeEntry) {
+                PairingView(pairing: remoteAccess?.pairing, pairingStatus: pairingStatus)
             }
             .alert("Error",
                    isPresented: $errAlert.error,
                    actions: {} ) {
                 Text(errAlert.message)
             }
+            //.task {
             .onAppear {
                 if UITesting {
                     // For UI testing reset all variables which are read from UserDefaults
@@ -113,7 +156,7 @@ struct ContentView: View {
                 } else if testRun {
                     remoteAccess = nil
                 } else {
-                    remoteAccess = RemoteAccess()
+                    remoteAccess = RemoteAccess(errAlert: errAlert, networkStatus: networkStatus, pairingStatus: pairingStatus)
                 }
                 remoteAccess?.mouseAction?.enableStopCursor(stopCursor)
                 remoteAccess?.mouseAction?.enableScrollPage(scrollPage)

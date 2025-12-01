@@ -11,42 +11,42 @@ import tech.kwik.agent15.env.PlatformMapping
 import tech.kwik.core.QuicClientConnection
 import tech.kwik.core.QuicStream
 import tech.kwik.core.log.SysOutLogger
-import java.security.KeyFactory
+import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
-import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
 import java.time.Duration
 
 
 private const val ALPN = "mobiletiltmouseproto"
 private const val TAG = "Connection"
+// reference hash of server certificate (DER format, in file cert.der)
+// can be retrieved from command line tool: shasum -a 256 cert.der
+private const val serverCertHashString = "50f3eea7c26b1c2a22d3593c37e8f66afcc431265c93c0ce1f4a7544aa7a6c55"
+// client PKCS#12-cert password
+private const val clientCertPassword = "mtm_client"
 
 /**
- * Connection handles the establishment and maintenance of a QUIC connection between the client and
- * server.
+ * Manages the QUIC connection to the server.
  *
- * This class uses the tech.kwik QUIC libraries to:
- * - Establish a connection using a custom application protocol (ALPN).
- * - Verify the server certificate against a predefined reference hash.
- * - Authenticate the client to the server via HMAC-SHA256 on a random message.
- * - Transmit data over a QUIC stream.
- * - Manage the connection lifecycle, including starting, sending data, and stopping the connection.
+ * This class encapsulates the logic for establishing, maintaining, and communicating
+ * over a secure QUIC connection using the `tech.kwik` library. It handles
+ * server authentication, client authentication, data transmission, and error handling.
  *
- * Usage:
- * - Instantiate Connection with an optional RemoteAccess handler.
- * - Call startConnection() with the server address (host:port) to initiate a connection.
- * - Use send(data: ByteArray) to send data over the established connection.
- * - Call stopConnection() to cleanly close the connection.
+ * Key responsibilities include:
+ * - Connection Lifecycle: Starting, stopping, and re-establishing the connection.
+ * - Security:
+ *    - Verifying the server's identity by matching its certificate against a known hash.
+ *    - Authenticating the client using a bundled certificate and private key.
+ * - Data Transfer: Sending and receiving data over the QUIC stream.
+ * - Pairing: Initiating the device pairing process with the server upon a successful connection.
+ * - Error Handling: Detecting connection issues and triggering recovery mechanisms.
  *
- * Security:
- * - A certificate check is performed to ensure the server's legitimacy.
- * - Client authentication is implemented for additional security.
- *
- * @param remoteAccess An optional RemoteAccess instance to manage network state and reconnection logic.
+ * @param context The Android application context, used to access assets like certificates.
+ * @param remoteAccess An optional handler for managing network state and orchestrating connection restarts.
+ * @param pairing An optional handler for the device pairing process.
  */
-open class Connection(private val context: Context?, val remoteAccess: RemoteAccess?) {
+open class Connection(private val context: Context?, val remoteAccess: RemoteAccess?, val pairing: Pairing?) {
     var connection: QuicClientConnection? = null
     var quicStream: QuicStream? = null
     var savedAddressWithPort: String? = null
@@ -93,63 +93,55 @@ open class Connection(private val context: Context?, val remoteAccess: RemoteAcc
      */
     @OptIn(ExperimentalStdlibApi::class)
     fun checkServerCertificate(serverCert: ByteArray): Boolean {
-        // reference hash of server certificate (DER format, in file cert.der)
-        // can be retrieved from command line tool: shasum -a 256 cert.der
-        val referenceCertHash =
-            "4f4bf5b86ea43dbcf9ae83d2cb6cfc0ed8c9da9ef027b8026ee184818452f214".hexToByteArray()
+        val referenceCertHash = serverCertHashString.hexToByteArray()
         val md = MessageDigest.getInstance("SHA-256")
         val hash = md.digest(serverCert)
         return hash contentEquals referenceCertHash
     }
 
     /**
-     * Loads the client certificate from the app's assets.
+     * Loads the client certificate and private key from the "cert.p12" file in assets.
      *
-     * This function reads the "cert_client.der" file from the application's assets directory,
-     * parses it as an X.509 certificate, and returns it as an X509Certificate object.
-     * The certificate is expected to be in DER (binary) format.
+     * This function reads the PKCS#12 file, parses it using the provided password,
+     * and extracts the first certificate and private key entry it finds.
      *
-     * @return The loaded X509Certificate instance representing the client certificate.
+     * @return A Pair containing the client's X509Certificate and PrivateKey.
      */
-    fun loadClientCertificate(): X509Certificate {
-        val inputStream = context!!.assets.open("cert_client.der")
-        val cf = CertificateFactory.getInstance("X.509")
-        return cf.generateCertificate(inputStream) as X509Certificate
+    private fun loadClientCertificateAndKey(): Pair<X509Certificate, PrivateKey> {
+        val inputStream = context!!.assets.open("cert.p12")
+        val keyStore = KeyStore.getInstance("PKCS12")
+        keyStore.load(inputStream, clientCertPassword.toCharArray())
+
+        // Get the first and only alias
+        val alias = keyStore.aliases().nextElement()
+
+        val certificate = keyStore.getCertificate(alias) as X509Certificate
+        val privateKey = keyStore.getKey(alias, clientCertPassword.toCharArray()) as PrivateKey
+
+        return Pair(certificate, privateKey)
     }
 
     /**
-     * Loads the client private key from the app's assets.
+     * Establishes a QUIC connection to the server and initiates a communication stream.
+      *
+     * The process is as follows:
+     * 1.  Determines the target server address: If `addressWithPort` is provided, it is used
+     *     and saved for future connections. Otherwise, a previously saved address is used.
+     * 2.  Loads the client certificate and private key for client authentication.
+     * 3.  Builds and establishes a `QuicClientConnection`. The connection is configured with
+     *     the appropriate application protocol (ALPN) and a 30-second timeout.
+     * 4.  Manually verifies the server's certificate against a hardcoded hash to prevent
+     *     man-in-the-middle attacks.
+     * 5.  Creates a bidirectional QUIC stream for sending and receiving data.
+     * 6.  Updates the global `NetworkState` to reflect the active connection.
+     * 7.  Initiates the pairing process via the `pairing` handler.
      *
-     * This function reads the "key_client.der" file from the application's assets directory,
-     * interprets it as a PKCS#8 encoded RSA private key, and returns it as a PrivateKey object.
-     * The key file must be in DER (binary) format.
+     * If a connection is already active, the function returns immediately. If errors occur
+     * during connection (e.g., certificate loading, connection failure), it may trigger a
+     * network restart via the `remoteAccess` handler and/or display an alert.
      *
-     * @return The loaded PrivateKey instance representing the client's private key.
-     */
-     fun loadClientKey(): PrivateKey {
-         val keyBytes = context!!.assets.open("key_client.der").readBytes()
-         val keySpec = PKCS8EncodedKeySpec(keyBytes)
-         val keyFactory = KeyFactory.getInstance("RSA")
-         return keyFactory.generatePrivate(keySpec)
-    }
-
-    /**
-     * Establishes a new QUIC connection to the server.
-     *
-     * This function initiates a connection using the tech.kwik QUIC client library. It performs the following steps:
-     * - Uses the provided server address (or a previously saved address) to build a connection URI.
-     * - Loads the client certificate and private key from the app's assets and configures them for mutual TLS authentication.
-     * - Configures and creates a new QUIC client connection with specified timeouts and logging.
-     * - Attempts to establish the connection and verifies that it is connected.
-     * - Validates the server certificate against a predefined reference hash.
-     * - Creates a communication stream.
-     * - Sets the connection as active by updating the network state.
-     *
-     * If no server address is available, the function logs the issue and aborts without connecting.
-     * If any error occurs during connection establishment, the network is restarted via the RemoteAccess instance.
-     *
-     * @param addressWithPort An optional string specifying the server address (host:port). If null or empty,
-     *                        a previously saved address will be used.
+     * @param addressWithPort The server address in "host:port" format. If null or empty,
+     *                        the last successfully used address is tried.
      */
     open fun startConnection(addressWithPort: String? = null) {
         if (addressWithPort.isNullOrEmpty()) {
@@ -168,11 +160,8 @@ open class Connection(private val context: Context?, val remoteAccess: RemoteAcc
         }
 
         // load client certificate and key
-        val clientCert: X509Certificate
-        val clientKey: PrivateKey
-        try {
-            clientCert = loadClientCertificate()
-            clientKey = loadClientKey()
+        val (clientCert, clientKey) = try {
+            loadClientCertificateAndKey()
         } catch (e: Exception) {
             Log.e(TAG, "Error loading client certificate: $e")
             clientCertificateAlert()
@@ -211,10 +200,12 @@ open class Connection(private val context: Context?, val remoteAccess: RemoteAcc
         }
         Log.d(TAG, "Server certificate check passed")
 
-        quicStream = connection?.createStream(false)
+        quicStream = connection?.createStream(true)
         Log.d(TAG, "Stream created")
 
         NetworkState.isConnected = true
+
+        pairing?.startPairing(this)
     }
 
     /**
@@ -232,6 +223,47 @@ open class Connection(private val context: Context?, val remoteAccess: RemoteAcc
         } catch (e: Exception) {
             Log.e(TAG, "Error send: $e")
             remoteAccess?.restartNetwork()
+        }
+    }
+
+    /**
+     * Reads a single byte from the QUIC stream.
+     *
+     * This function attempts to read one byte from the input stream of the established
+     * QUIC connection. If the stream is not available or the end of the stream has
+     * been reached, it returns null.
+     *
+     * @return The byte read from the stream, or null if no byte could be read.
+     */
+    open fun readByte(): Byte? {
+        try {
+            return quicStream?.inputStream?.read()?.toByte()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading byte: $e")
+            return null
+        }
+    }
+
+    /**
+     * Reads a sequence of bytes from the QUIC stream into the provided buffer.
+     *
+     * This function attempts to fill the entire `buffer` with data from the input stream.
+     * It returns the number of bytes actually read. If the number of bytes read is less
+     * than the buffer's capacity or an I/O error occurs, it returns null.
+     *
+     * @param buffer The byte array to fill with data from the stream.
+     * @return The number of bytes read into the buffer, or `null` if an exception occurred.
+     */
+    open fun readBuffer(buffer: ByteArray): Int? {
+        try {
+            val len = quicStream?.inputStream?.read(buffer)
+            if (len == null || len < buffer.size) {
+                Log.e(TAG, "Error reading enough bytes: $len < ${buffer.size}")
+            }
+            return len
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading buffer: $e")
+            return null
         }
     }
 

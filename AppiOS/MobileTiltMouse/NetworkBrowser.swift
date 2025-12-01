@@ -1,37 +1,28 @@
 import Foundation
 import Network
 
-/// A class that discovers the mouse control server instance on the local network using Bonjour/mDNS.
+/// Discovers the mouse control server instance on the local network using Bonjour/mDNS.
 ///
-/// The NetworkBrowser class uses Network framework's NWBrowser to:
+/// It uses Network framework's NWBrowser to:
 /// - Discover the service of the mouse control server in the local domain
 /// - Monitor service availability changes
-/// - Establish connections to discovered server via [`Connection`](Connection.swift) 
+/// - Establish connections to discovered server via ``Connection``
 ///
 /// Only one active browser instance is allowed at a time. Starting browsing while a browser exists will be ignored.
 ///
-/// Example usage:
-/// ```swift
-/// let connection = Connection()
-/// let browser = NetworkBrowser(connection: connection)
-/// 
-/// // Start discovering servers
-/// browser.startBrowsing()
-/// 
-/// // Stop discovery
-/// browser.stopBrowsing()
-/// ```
-///
-/// The browser integrates with:
-/// - [`Connection`](Connection.swift) to establish connections to discovered servers
-/// - [`networkStatus`](MobileMouseApp.swift) to update interface availability state
+/// - Parameters:
+///     - networkStatus: For updating network status state
+///     - connection: An optional ``Connection`` object for network communication.
+///     - bonjourServiceType: Optional string for Bonjour service type. Default is nil, then it is fetched from app's property key list.
 ///
 class NetworkBrowser {
     var browser: NWBrowser?
+    var networkStatus: NWStatus
     weak var connection: Connection?
     var bonjourServiceType: String?
     
-    init(connection: Connection?, bonjourServiceType: String? = nil) {
+    init(networkStatus: NWStatus, connection: Connection?, bonjourServiceType: String? = nil) {
+        self.networkStatus = networkStatus
         self.connection = connection
         
         if bonjourServiceType == nil {
@@ -79,9 +70,9 @@ class NetworkBrowser {
                 switch change {
                 case .added(let result):
                     lgg.info("Network browser added: \(result.endpoint.debugDescription, privacy: .public)")
-                    networkStatus.interfaceDisabled = false
+                    self?.networkStatus.interfaceDisabled = false
                     self?.connection?.startConnection(result.endpoint)
-                    lgg.info("Network browser stop intentionally")
+                    lgg.info("Network browser stopped intentionally")
                     self?.stopBrowsing()
                 case .removed(let result):
                     lgg.info("Network browser removed: \(result.endpoint.debugDescription, privacy: .public)")
@@ -100,8 +91,8 @@ class NetworkBrowser {
     /// Stops network service discovery and cleans up resources.
     ///
     /// This method:
-    /// 1. Cancels the active browser instance
-    /// 2. Removes the browser reference
+    /// - Cancels the active browser instance
+    /// - Removes the browser reference
     func stopBrowsing() {
         lgg.info("Stopping network browser")
         browser?.cancel()

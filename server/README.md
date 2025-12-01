@@ -1,16 +1,50 @@
 # Mobile Mouse
 
-A server application that allows you to control your computer's mouse using a mobile device with the apps for iOS [AppiOS](../AppiOS) or Android [AppAndroid](../AppAndroid).
+A server application that allows you to control your computer's mouse using a mobile device with an app for iOS [AppiOS](../AppiOS) or Android [AppAndroid](../AppAndroid).
 
-Tested on MacOS (Sequoia, 15). But probably also works on Windows and Linux.
+Tested on MacOS, Linux (with X11) and Windows.
 
 ## Features
 
 - Rust
-- Mouse pointer is bound to the monitor in which the server is started.
+- QUIC transport protocol of [quinn crate](https://crates.io/crates/quinn)
+- Provides self-signed server certificate
+- Checks self-signed client certificate
+- Device pairing, device IDs stored encrypted
+- Mouse pointer is bound to the monitor in which the server is started
 
 
 ## Installation
+
+1. Prerequisites: \
+   Dependencies to crates [enigo](https://github.com/enigo-rs/enigo) and [zeroconf](https://github.com/windy1/zeroconf-rs) require the installation of additional packages:
+    - MacOS: None
+    - Linux: \
+      Use X11, not Wayland. Install:
+      ```
+      sudo apt install libxdo-dev xorg-dev libxcb-shape0-dev libxcb-xfixes0-dev clang avahi-daemon libavahi-client-dev
+      ```
+    - Windows: \
+      If you [install Visual Studio for using Rust](https://rust-lang.github.io/rustup/installation/windows-msvc.html), also select manually (both) `clang` components for installation.
+      For Bonjour install iTunes or Bonjour Print Services or just:
+      ```
+      winget install Apple.Bonjour
+      ```
+      - Windows x64: \
+        Set environment variable to a directory containing x64-version of `libclang.dll` (required by [bindgen](https://github.com/rust-lang/rust-bindgen)). For Visual Studio 2026 Community Edition it is:
+        ```
+        set LIBCLANG_PATH=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin
+        ```
+      - Windows Arm64: \
+        Set environment variable to a directory containing Arm64-version of `libclang.dll` (required by [bindgen](https://github.com/rust-lang/rust-bindgen)). For Visual Studio 2026 Community Edition it is:
+        ```
+        set LIBCLANG_PATH=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\ARM64\bin
+        ```
+        Prepare for cross compilation for Windows x64 (because of Bonjour):
+        ```
+        rustup target add x86_64-pc-windows-msvc
+        ```
+    
 
 1. Clone the repository:
    ```
@@ -18,21 +52,135 @@ Tested on MacOS (Sequoia, 15). But probably also works on Windows and Linux.
    cd MobileTiltMouse/server
    ```
 
-2. Build and run the application:
-   ```
-   cargo run --release
-   ```
+1. Build and run the application:
+   - MacOS, Linux, Windows x64:
+     ```
+     cargo run
+     ```
+   - Windows Arm64: \
+     Cross compilation for Windows x64 is required because of Bonjour package.
+     ```
+     cargo run --target x86_64-pc-windows-msvc
+     ```
 
 ## Usage
 
 1. Start the server in a terminal on the computer, on which you want to control the mouse.
-2. Connect from your mobile device using a compatible client.
+2. Start one of the provided mobile apps. It will connect automatically to the server.
+3. If client and server do not yet known each other, the server will ask for a pairing code, which must be entered on the client.
 3. Control your computer's mouse remotely.
 4. When finished, exit server with Ctrl-C.
 
 On MacOS you need to allow the terminal to control your computer in order to move the mouse pointer.
 
-You might need to allow this app to accept incoming connections in your computer's firewall.
+You need to allow this server app to accept incoming connections in your computer's firewall.
+
+
+## Protocol
+
+The QUIC connection is configured as a bidirectional stream between client and server at the beginning. After pairing succeeded only the direction from client to server is continued. 
+
+### Establishment of Connection
+
+1. Server advertises itself via Bonjour as `_mobiletiltmouse._udp`. When client finds that name in the local network, it gets IP address and port number of the server.
+2. Client and server establish a QUIC connection (ALPN: `mobiletiltmouseproto`) and verify each other's certificate.
+3. Pairing between client and server is executed.
+4. Unidirectional mouse control is enabled.
+
+### Pairing
+
+```mermaid
+sequenceDiagram
+    participant Server
+    participant Client
+    participant User  
+    
+    Client->>Server: Server ID Request + Encryption Key
+    Server->>Client: Server ID
+    Client->>Server: Server ID known/unknown
+    Client->>Server: Client ID
+    alt Client ID and Server ID known
+      Server->>Client: Already paired
+      Note over Server, Client: Exit
+    else Client ID and/or Server ID unknown
+      Server->>Client: Start pairing
+      Client->>User: Show PIN fields
+      loop Repeat until PIN correct
+      Server->>Server: Generate and display random PIN
+        loop  Max. 3 wrong PIN entries
+          User->>Client: Enter PIN 
+          Client->>Server: Send PIN
+          Server->>Server: Validate PIN
+          alt PIN incorrect
+              Server->>Client: PIN rejected
+              Client->>User: Show PIN incorrect
+              Note over Server: Wait for 2 seconds
+          else PIN correct
+              Server->>Client: Approve pairing
+              Note over Server, User: Exit
+          end
+        end
+      end
+    end
+```
+
+### Data Packets of Mouse Control
+
+Each packet is 3 bytes with the following format:
+- Byte 2: Header (4 bits) | Data (4 bits)
+- Byte 1: Data
+- Byte 0: Data
+
+Data packets with unknown headers are ignored.
+
+|                             | Header | | Payload |
+|:-                           |-:|-:|-:|
+|*bit position*               |*23...20*|*19...10*|*9...0*|
+|move                         |0x0|$\Delta$ y|$\Delta$ x|
+|scroll                       |0x1|$\Delta$ y|$\Delta$ x|
+|left button press            |0x2||0|
+|left button release          |0x2||1|
+|middle button press          |0x2||2|
+|middle button release        |0x2||3|
+|right button press           |0x2||4|
+|right button release         |0x2||5|
+
+
+## Self-signed certificates
+
+The QUIC connection uses different self-signed certificates for server and client. 
+
+- Create certificate and its private key:
+  ``` 
+  openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 100000 -nodes -subj '/CN=localhost'
+  ```
+  
+- Convert certificate and private key to PKCS#12:
+  - server: 
+    ```
+    openssl pkcs12 -export -in cert.pem -inkey key.pem -out cert.p12 -passout pass:mtm_server
+    ```
+  - client: \
+    Older Android versions (like Android 10/API 29) do not support current default algorithms for encryption (which is AES_256_CBC with PBKDF2), therefore [legacy mode](https://docs.openssl.org/master/man1/openssl-pkcs12/) is required (using RC2_CBC or 3DES_CBC) :  
+    ```
+    openssl pkcs12 -legacy -export -in cert.pem -inkey key.pem -out cert.p12 -passout pass:mtm_client
+    ```
+
+- Convert certificate from PEM to DER format:
+  ```
+  openssl x509 -outform der -in cert.pem -out cert.der
+  ```
+
+- Get reference hash value of cert.der:
+  ```
+  shasum -a 256 cert.der
+  ```
+  The hash is used to verify the certificate.
+  
+
+## Certificate Check
+
+The server's certificate is sent to the client on connection setup. And the server requests the client's certificate. The sha256-hash of both self-signed certificates are compared against their reference hashes. If a check fails, the connection is not established.
 
 
 ## Tests
@@ -47,7 +195,7 @@ You might need to allow this app to accept incoming connections in your computer
   Integration tests are available for both iOS and Android. These tests launch an iOS simulator or Android emulator on the same computer, where a test case of the apps (simulating a button press) interacts with the server. The server then verifies if the correct signal is received.
 
   **Prerequisite:**  
-  The appropriate development environment (Xcode for iOS, Android Studio for Android) must be installed on the test machine.
+  The appropriate development environment (Xcode for iOS, Android Studio for Android) must be installed on the test machine, which should run MacOS (not tested with Linux or Windows).
 
   Integration tests are not run by default with other tests and must be explicitly invoked.
 
@@ -66,85 +214,6 @@ You might need to allow this app to accept incoming connections in your computer
     cargo test --test integration_tests -- test_android_receive_button_clicks --ignored
     ```
 
-## Protocol
-
-The QUIC connection is configured as a unidirectional stream from client to server.
-
-### Establishment of Connection
-
-1. Server advertises itself via *Bonjour* as `_mobiletiltmouse._udp`. When client finds that name in the local network, it gets IP address and port number of the server.
-2. Client establishes a QUIC connection to the server (ALPN: `mobiletiltmouseproto`) and verifies the server's certificate.
-3. Client authenticates itself to the server.
-
-
-### Data Packets of Mouse Control
-
-Each packet is 3 bytes with the following format:
-- Byte 2: Header (4 bits) | Data (4 bits)
-- Byte 1: Data
-- Byte 0: Data
-
-
-|*Client authenticated*       | Header | Payload ||
-|:-                           |-:|-:|-:|
-|*bit position*               |*23...20*|*19...10*|*9...0*|
-|move                         |0x0|$\Delta$ y|$\Delta$ x|
-|scroll                       |0x1|$\Delta$ y|$\Delta$ x|
-|left button press            |0x2||0|
-|left button release          |0x2||1|
-|middle button press          |0x2||2|
-|middle button release        |0x2||3|
-|right button press           |0x2||4|
-|right button release         |0x2||5|
-|client authentication reset  |0xF||-|
-
-|*Client not authenticated*     | Header | Payload ||
-|:-                             |-:|-:|-:|
-|*bit position*                 |*23...20*|*19...16*|*15...0*|
-|client authentication message  |0xA|-|random|
-|client authentication HMAC     |0xB|-|hmac|
-|client authentication reset    |0xF|-|-|
-
-- Payload "-" means bits are ignored.
-- Data packets with unknown headers are ignored.
-- "client authentication reset" is used internally by the server only.
-
-
-## Self-signed certificates
-
-QUIC connection uses self-signed certificates for server and client. 
-
-- Create certificate and its private key (output files: cert.pem, key.pem):
-  ``` 
-  openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 100000 -nodes -subj '/CN=localhost'
-  ```
-
-- Convert certificate from PEM to DER format:
-  ```
-  openssl x509 -outform der -in cert.pem -out cert.der
-  ```
-  
-- Convert private key from PEM to DER format:
-  ```
-  openssl rsa -inform pem -in key.pem -outform der -out key.der
-  ```
-  
-- Convert certificate and private file to PKCS#12 (with password `mtm`):
-  ```
-  openssl pkcs12 -export -in cert.pem -inkey key.pem -out cert.p12 -passout pass:mtm
-  ```
-
-- Get hash value of cert.der:
-  ```
-  shasum -a 256 cert.der
-  ```
-  The hash is used to verify the certificate.
-  
-
-## Client Authentication
-
-The client is authenticated by requesting its certificate on connection setup. The hash of this self-signed certificate is compared against a reference hash. If this check fails, the connection is not established.
-
 
 ## Acknowledgements
 
@@ -155,8 +224,13 @@ This project uses the following libraries:
 - [rustls](https://crates.io/crates/rustls) - TLS configuration
 - [tokio](https://crates.io/crates/tokio) - connection handling
 - [zeroconf](https://crates.io/crates/zeroconf) - Bonjour/mDNS service
-- [hex-literal](https://https://crates.io/crates/hex-literal) - hex conversion in client authentication 
-- [sha2](https://crates.io/crates/sha2) - client authentication with RustCrypto's hashes
+- [hex-literal](https://https://crates.io/crates/hex-literal) - hex conversion in certificate check 
+- [sha2](https://crates.io/crates/sha2) - client certificate check with RustCrypto's hashes
+- [aes-gcm-siv](https://crates.io/crates/aes-gcm-siv) - encrypted storage of server and client IDs
+- [hkdf](https://crates.io/crates/hkdf) - HMAC-based Key Derivation Function
+- [rand](https://crates.io/crates/rand) - pairing code generation
+- [p12-keystore](https://crates.io/crates/p12-keystore) - handle PKCS#12 certificate
+- [zeroize](https://crates.io/crates/zeroize) - securely clear key from memory
 - [dirs](https://crates.io/crates/dirs) - home directory in integration test
 
 See `Cargo.toml` and `Cargo.lock` for a full list of dependencies.

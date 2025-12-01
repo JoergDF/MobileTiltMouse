@@ -17,15 +17,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -53,11 +50,11 @@ import kotlinx.coroutines.launch
 private const val TAG = "MainActivity"
 
 /**
- * A singleton object used for tracking and displaying error alerts in the UI.
+ * Singleton object used for tracking and displaying error alerts in the UI.
  *
  * This object exposes two mutable state properties:
- * - [show]: A Boolean indicating whether the error alert dialog should be visible.
- * - [message]: A String containing the error message to display.
+ * @property show: A Boolean indicating whether the error alert dialog should be visible.
+ * @property message: A String containing the error message to display.
   */
 object ErrorAlert {
     var show by mutableStateOf(false)
@@ -68,13 +65,28 @@ object ErrorAlert {
  * Singleton object that tracks the current network state.
  *
  * This object exposes two mutable state properties:
- * - [isConnected]: A Boolean indicating whether the device is currently connected to the server.
- * - [isWifiEnabled]: A Boolean indicating whether WiFi is enabled on the device.
+ * @property isConnected: A Boolean indicating whether the device is currently connected to the server.
+ * @property isWifiEnabled: A Boolean indicating whether WiFi is enabled on the device.
  */
 object NetworkState {
     var isConnected by mutableStateOf(false)
     var isWifiEnabled by mutableStateOf(false)
 }
+
+/**
+ * Singleton object that tracks the state of the device pairing process.
+ *
+ * This object exposes two mutable state properties:
+ * @property showCodeEntry A boolean state that determines whether the pairing code entry
+ *                         UI should be displayed.
+ * @property codeRejected A boolean state that indicates if the pairing code entered by
+ *                        the user was rejected by the server.
+ */
+object PairingStatus {
+    var showCodeEntry by mutableStateOf(false)
+    var codeRejected by mutableStateOf(false)
+}
+
 
 /**
  * MainActivity is the primary Android activity for the MobileMouse application.
@@ -89,13 +101,15 @@ object NetworkState {
  * - Keeping the device screen on and managing UI state.
  */
 class MainActivity : ComponentActivity(), SensorEventListener {
+    private lateinit var userSettings: UserSettings
     private var remoteAccess: RemoteAccess? = null
     private var mouseActions: MouseActions? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        remoteAccess = RemoteAccess(this)
+        userSettings = UserSettings(this)
+        remoteAccess = RemoteAccess(this, userSettings)
         mouseActions = remoteAccess?.mouseActions
 
         enableEdgeToEdge()
@@ -105,7 +119,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
             //MobileMouseTheme {
             AppTheme {
-                MobilMouseApp(remoteAccess)
+                MobilTiltMouseApp(remoteAccess, userSettings)
             }
         }
     }
@@ -134,37 +148,39 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 }
 
 /**
- * The main composable function for the MobileMouse application's user interface.
+ * The main composable function for the Mobile Tilt Mouse application's user interface.
  *
  * This function composes the primary UI elements which include:
- * - A TopAppBar displaying network status icons and a settings button.
- * - Interactive controls such as mouse toggles ([MouseToggles]) and mouse buttons ([MouseButtons]).
- * - A modal bottom sheet ([SettingsSheet]) to adjust user settings (e.g., mouse button visibility and speed) when enabled.
- * - An error alert dialog that displays messages from [ErrorAlert] when errors occur.
+ * - A `TopAppBar` displaying network status icons (WiFi and connection state) and a settings button.
+ * - [MouseToggles] for enabling/disabling cursor movement and scrolling.
+ * - [MouseButtons] for performing left, right and middle clicks.
+ * - A [SettingsSheet] (modal bottom sheet) to adjust user settings (like mouse button visibility and mouse speed) when enabled.
+ * - A [PairingEntry] dialog for the user to input the pairing code from the server.
+ * - An `AlertDialog` to display critical error messages from [ErrorAlert].
  *
- * It collects state from the [UserSettings] instance to:
- * - Observe user preferences (stopCursor, scrollPage, mouseSpeed, and showMouseButtons).
- * - Update the UI accordingly.
+ *  State Management and Initialization:
+ *  - It observes user preferences (e.g., `mouseSpeed`, `showMouseButtons`) from a
+ *   `UserSettings` instance and updates the UI accordingly.
+ *  - A `LaunchedEffect` is used for one-time initialization tasks when the composable first enters
+ *   the composition. This includes:
+ *       - Initializing the device ID for the pairing process.
+ *       - Setting the initial state of the mouse controls (speed, stop/scroll modes)
+ *         based on saved user settings.
+ *       - Checking and setting the initial WiFi status.
  *
- * In addition, it leverages the [MouseActions] instance from the optional [RemoteAccess] parameter
- * to handle sensor events and remote commands.
- *
- * @param remoteAccess An optional instance of [RemoteAccess] used to manage network discovery,
- *                     connection handling, and mouse actions.
+ * @param remoteAccess An optional instance of [RemoteAccess], which provides access to
+ *                     lower-level components like [MouseActions], [Pairing] and [NetworkMonitor].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MobilMouseApp(remoteAccess: RemoteAccess?) {
-    val context = LocalContext.current
-    val mouseActions = remoteAccess?.mouseActions
-    val userSettings = UserSettings(context)
+fun MobilTiltMouseApp(remoteAccess: RemoteAccess?, userSettings: UserSettings) {
     val stopCursor = userSettings.getStopCursor.collectAsState(initial = false)
     val scrollPage = userSettings.getScrollPage.collectAsState(initial = false)
     val mouseSpeed = userSettings.getMouseSpeed.collectAsState(initial = 5f)
     val showMouseButtons = userSettings.getShowMouseButtons.collectAsState(initial = arrayOf(true, true, true))
+    val mouseActions = remoteAccess?.mouseActions
     val scope = rememberCoroutineScope()
-    var showBottomSheet by remember { mutableStateOf(false) }
-
+    var showSettingsSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(null) {
         // set initial values for mouse elements
@@ -198,8 +214,9 @@ fun MobilMouseApp(remoteAccess: RemoteAccess?) {
                     }
 
                     // settings button
-                    IconButton(onClick = { showBottomSheet = true }) {
-                        Icon(Icons.Rounded.Settings, contentDescription = "Settings")
+                    IconButton(onClick = { showSettingsSheet = true }) {
+                        Icon(painter = painterResource(R.drawable.settings_24px),
+                            contentDescription = "Settings")
                     }
                 }
             )
@@ -232,7 +249,7 @@ fun MobilMouseApp(remoteAccess: RemoteAccess?) {
             Spacer(Modifier.weight(1.0f))
         }
 
-        if (showBottomSheet) {
+        if (showSettingsSheet) {
             SettingsSheet(
                 mouseButtons = showMouseButtons.value,
                 onMouseButtonsChange = {
@@ -240,14 +257,29 @@ fun MobilMouseApp(remoteAccess: RemoteAccess?) {
                         userSettings.setShowMouseButtons(it)
                     }
                 },
-                onShowBottomSheetChange = { showBottomSheet = it },
+                onShowBottomSheetChange = { showSettingsSheet = it },
                 sliderPosition = mouseSpeed.value,
                 onSliderChangeFinished = {
-                    mouseActions?.setSpeed(it)
                     scope.launch {
+                        mouseActions?.setSpeed(it)
                         userSettings.setMouseSpeed(it)
                     }
                 },
+                onResetPairing = {
+                    scope.launch {
+                        remoteAccess?.pairing?.resetPairing()
+                    }
+                }
+            )
+        }
+
+        if (PairingStatus.showCodeEntry) {
+            PairingEntry(
+                onCodeComplete = {
+                    scope.launch {
+                        remoteAccess?.pairing?.sendPairingCode(it)
+                    }
+                }
             )
         }
     }
@@ -297,6 +329,6 @@ fun NetworkUnconnectedIcon() {
 @Composable
 fun MobileMouseAppPreview() {
     AppTheme {
-       MobilMouseApp(null)
+       MobilTiltMouseApp(null, UserSettings(LocalContext.current))
     }
 }

@@ -6,12 +6,6 @@ import Foundation
 
 @Suite struct ConnectionTests {
     
-    class MockRemoteAccess: RemoteAccess {
-        override init() {
-            
-        }
-    }
-
     class MockSendOfConnection: Connection {
         var sendData: [Data] = []
         override func send(_ payload: Data) {
@@ -22,54 +16,46 @@ import Foundation
     
     @Test
     func initialisation() {
-        let remoteAccess = MockRemoteAccess()
-        let conn = Connection(remoteAccess)
+        let errAlert = ErrorAlert()
+        let networkStatus = NWStatus()
+        let pairing = Pairing(mouseAction: nil, pairingStatus: PairingStatus(), networkStatus: NWStatus())
+        let conn = Connection(errAlert: errAlert, networkStatus: networkStatus, pairing: pairing)
         
-        #expect(conn.connection == nil)
+        #expect(conn.nwConnection == nil)
         #expect(conn.endpoint == nil)
-        #expect(conn.remoteAccess === remoteAccess)
+        #expect(conn.errAlert === errAlert)
+        #expect(conn.networkStatus === networkStatus)
+        #expect(conn.pairing === pairing)
     }
     
     @Test
     func startConnection() {
         let testEndpoint = NWEndpoint.hostPort(host: "localhost", port: 22222)
-        let conn = Connection(nil)
+        let conn = Connection(errAlert: ErrorAlert(), networkStatus: NWStatus(), pairing: nil)
         conn.startConnection(testEndpoint)
         
-        #expect(conn.connection != nil)
+        #expect(conn.nwConnection != nil)
         #expect(conn.endpoint == testEndpoint)
         
         // Calling startConnection again should not create a new connection
-        let initialConnection = conn.connection
+        let initialConnection = conn.nwConnection
         conn.startConnection(testEndpoint)
         
-        #expect(conn.connection === initialConnection)
+        #expect(conn.nwConnection === initialConnection)
     }
     
     @Test
     func stopConnection() {
         let testEndpoint = NWEndpoint.hostPort(host: "localhost", port: 22222)
-        let conn = Connection(nil)
+        let conn = Connection(errAlert: ErrorAlert(), networkStatus: NWStatus(), pairing: nil)
         conn.startConnection(testEndpoint)
         
-        #expect(conn.connection != nil)
+        #expect(conn.nwConnection != nil)
         
         conn.stopConnection()
         
-        #expect(conn.connection == nil)
+        #expect(conn.nwConnection == nil)
         
-    }
-    
-    @Test
-    func authenticateClientToServer() {
-        let conn = MockSendOfConnection(nil)
-        conn.authenticateClientToServer()
-        
-        #expect(conn.sendData.count == 32)
-     
-        // Check headers
-        #expect(conn.sendData[ 0...15].allSatisfy { $0.first == 0xA0 })
-        #expect(conn.sendData[16...31].allSatisfy { $0.first == 0xB0 })
     }
     
 }

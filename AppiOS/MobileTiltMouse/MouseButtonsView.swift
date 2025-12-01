@@ -10,14 +10,12 @@ import SwiftUI
 /// - Configurable button visibility
 ///
 /// Press-and-hold interaction:
-/// ```
 /// 1. Touch down on button → Mouse button pressed
 /// 2. Keep finger on screen → Mouse button stays pressed
 /// 3. Lift finger → Mouse button released
-/// ```
 ///
 /// - Parameters:
-///   - mouseAction: Optional reference to [`MouseActions`](MouseActions.swift) for button events
+///   - mouseAction: Optional reference to `MouseActions` for button events
 ///   - disable: Boolean flag to disable all buttons
 ///   - showMouseButton: Array of 3 booleans controlling button visibility [left, middle, right]
 ///

@@ -16,27 +16,27 @@ import Network
     
     @Test
     func initConnection() {
-        let connection = MockConnection(nil)
-        let browser = NetworkBrowser(connection: connection)
+        let connection = MockConnection(errAlert: ErrorAlert(), networkStatus: NWStatus(), pairing: nil)
+        let browser = NetworkBrowser(networkStatus: NWStatus(), connection: connection)
        
         #expect(browser.connection === connection)
     }
     
     @Test
     func initBonjourType() {
-        let browser1 = NetworkBrowser(connection: nil, bonjourServiceType: "abc")
+        let browser1 = NetworkBrowser(networkStatus: NWStatus(), connection: nil, bonjourServiceType: "abc")
         #expect(browser1.bonjourServiceType == "abc")
         
-        let browser2 = NetworkBrowser(connection: nil, bonjourServiceType: nil)
-        #expect(browser2.bonjourServiceType == "_mobilemouse._udp")
+        let browser2 = NetworkBrowser(networkStatus: NWStatus(), connection: nil, bonjourServiceType: nil)
+        #expect(browser2.bonjourServiceType == "_mobiletiltmouse._udp")
         
-        let browser3 = NetworkBrowser(connection: nil)
-        #expect(browser3.bonjourServiceType == "_mobilemouse._udp")
+        let browser3 = NetworkBrowser(networkStatus: NWStatus(), connection: nil)
+        #expect(browser3.bonjourServiceType == "_mobiletiltmouse._udp")
     }
     
     @Test
     func browserStartsOnce() {
-        let browser = NetworkBrowser(connection: nil)
+        let browser = NetworkBrowser(networkStatus: NWStatus(), connection: nil)
         
         #expect(browser.browser === nil)
         browser.startBrowsing()
@@ -51,7 +51,7 @@ import Network
     
     @Test
     func bonjourType() {
-        let browser = NetworkBrowser(connection: nil, bonjourServiceType: "")
+        let browser = NetworkBrowser(networkStatus: NWStatus(), connection: nil, bonjourServiceType: "")
         
         browser.startBrowsing()
         
@@ -60,7 +60,7 @@ import Network
     
     @Test
     func stop() {
-        let browser = NetworkBrowser(connection: nil)
+        let browser = NetworkBrowser(networkStatus: NWStatus(), connection: nil)
         
         browser.startBrowsing()
         #expect(browser.browser != nil)

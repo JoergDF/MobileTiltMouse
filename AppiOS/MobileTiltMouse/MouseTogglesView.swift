@@ -5,8 +5,12 @@ import SwiftUI
 /// The view contains two toggle switches:
 /// - Cursor freeze: Disables cursor movement
 /// - Scroll mode: Switches between cursor movement and page scrolling
-/// - Cursor freeze toggle is disabled when scroll mode is active
-/// - Changes are immediately applied through [`MouseActions`](MouseActions.swift)
+/// - Changes are immediately applied through ``MouseActions``
+///
+/// - Parameters:
+///   - mouseAction: Optional reference to ``MouseActions`` for applying toggles
+///   - stopCursor: Boolean Binding to freeze cursor
+///   - scrollPage: Boolean Binding to enable page scrolling
 ///
 struct MouseTogglesView: View {
     var mouseAction: MouseActions?
@@ -15,7 +19,8 @@ struct MouseTogglesView: View {
     
     var body: some View {
         HStack {
-            // view should cover full width, otherwise background color is no applied to full width, if buttons are invisible.
+            // view should cover full width, otherwise background color is
+            // not applied to full width, if buttons are invisible.
             Spacer()
             
             VStack {
@@ -28,10 +33,9 @@ struct MouseTogglesView: View {
                 .onChange(of: stopCursor) { oldValue, newValue in
                     mouseAction?.enableStopCursor(newValue)
                 }
-                .disabled(scrollPage)
-                
                 
                 Spacer()
+
                 Toggle(isOn: $scrollPage) {
                     Image(systemName:
                             "arrow.up.and.down.and.arrow.left.and.right")

@@ -17,7 +17,7 @@ class ClientCertificateTest {
     @Before
     fun setup()  {
         context = ApplicationProvider.getApplicationContext()
-        conn = Connection(context, null)
+        conn = Connection(context, null, null)
     }
 
 
@@ -32,8 +32,8 @@ class ClientCertificateTest {
         val hashCert = md.digest(certDer)
 
         assertArrayEquals(
-            hashCert,
-            "019641942271cf481efdb9416b0a06e5ae42f1d8d28dd30ecf6946149fdbc002".hexToByteArray()
+            "019641942271cf481efdb9416b0a06e5ae42f1d8d28dd30ecf6946149fdbc002".hexToByteArray(),
+            hashCert
         )
     }
 
@@ -41,8 +41,8 @@ class ClientCertificateTest {
     fun loadClientKey() = runTest {
         val key = conn.loadClientKey()
 
-        assertEquals(key.algorithm, "RSA")
-        assertEquals(key.format, "PKCS#8")
+        assertEquals("RSA", key.algorithm)
+        assertEquals("PKCS#8", key.format)
     }
 
 }

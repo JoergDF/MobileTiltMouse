@@ -1,5 +1,5 @@
 import Foundation
-import SwiftUICore
+import SwiftUI
 import CoreMotion
 
 
@@ -9,65 +9,25 @@ enum MouseButtonEvent: CaseIterable {
     case release
 }
 
-/// A class that handles mouse pointer control using device motion and button events.
+/// Handles mouse pointer control using device motion and button events.
 ///
-/// The MouseActions class manages:
+/// It manages:
 /// - Device motion tracking for cursor movement and scrolling
 /// - Mouse button press/release events
 /// - Motion sensitivity settings
 /// - Cursor freeze and scroll mode toggles
 ///
-/// Example usage:
-/// ```swift
-/// let mouseActions = MouseActions(connection: connection)
-///
-/// // Start motion tracking
-/// mouseActions.startMotionUpdate()
-/// 
-/// // Handle button events
-/// mouseActions.leftButton(.press)
-/// mouseActions.leftButton(.release)
-///
-/// // Configure settings
-/// mouseActions.setSpeed(5.0)
-/// mouseActions.enableStopCursor(true)
-/// mouseActions.enableScrollPage(true)
-/// ```
-///
 /// The class uses CoreMotion for device attitude tracking and sends movement/button
-/// commands through the provided [`Connection`](Connection.swift) instance.
+/// commands through the ``Connection`` instance.
 ///
-/// Motion data format:
-/// ```
-/// +------------+----------+----------+
-/// | 4-bit type | 10-bit y | 10-bit x |
-/// +------------+----------+----------+
-/// ```
-/// Where type is:
-/// - 0x0: Mouse movement
-/// - 0x1: Page scrolling
-///
-/// Button event data format:
-/// ```
-/// +------------+--------+--------+
-/// | 0x20 (type)|  0x00  | action |
-/// +------------+--------+--------+
-/// ```
-/// Where action is:
-/// - 0x00/0x01: Left button press/release
-/// - 0x02/0x03: Middle button press/release
-/// - 0x04/0x05: Right button press/release
-///
-
 class MouseActions {
-    let connection: Connection?
+    var connection: Connection?
     let motionManager: CMMotionManager
     var scrollPage: Bool
     var stopCursor: Bool
     var speed: Int
     
-    init(connection: Connection?) {
-        self.connection = connection
+    init() {
         motionManager = CMMotionManager()
         scrollPage = false
         stopCursor = false
@@ -77,16 +37,19 @@ class MouseActions {
     /// Starts device motion tracking for cursor movement and scrolling.
     ///
     /// This method:
-    /// 1. Checks if device motion tracking is available
-    /// 2. Sets update interval to 0.1 seconds (10 Hz)
-    /// 3. Starts motion updates on the main queue
-    /// 4. Processes pitch and roll values to control cursor/scrolling
+    /// - Sets connection property
+    /// - Checks if device motion tracking is available
+    /// - Sets update interval to 0.1 seconds (10 Hz)
+    /// - Starts motion updates
+    /// - Processes pitch and roll values to control cursor/scrolling
     ///
     /// Motion processing:
     /// - In scroll mode: Converts motion to scroll events
     /// - In normal mode: Converts motion to cursor movement (unless cursor is frozen)
     ///
-    func startMotionUpdate() {
+    /// - Parameter connection: Optional ``Connection`` reference
+    func startMotionUpdate(connection: Connection?) {
+        self.connection = connection
         if motionManager.isDeviceMotionAvailable {
             motionManager.deviceMotionUpdateInterval = 0.1
             
@@ -94,27 +57,27 @@ class MouseActions {
                 var x = data?.attitude.roll  ?? 0.0
                 let y = data?.attitude.pitch ?? 0.0
 
-                // use phone when it is rolled by -90° (in right hand) or +90° (in left hand)
+                // phone usage when it is rolled by -90° (in right hand) or +90° (in left hand)
                 if x < -.pi / 4 {
                     x += .pi / 2
                 } else if x > .pi / 4 {
                     x -= .pi / 2
                 }
                 
-                if let scrollPage = self?.scrollPage, scrollPage {
-                    self?.scroll(x, y)
-                } else {
-                    if let stopCursor = self?.stopCursor, !stopCursor {
-                        self?.move(x, y)
+                // forward motion data, if cursor is not stopped
+                if let scrollPage = self?.scrollPage, let stopCursor = self?.stopCursor {
+                    if !stopCursor {
+                        self?.streamMotion(x, y, scrolling: scrollPage)
                     }
                 }
             }
         }
     }
     
-    /// Stops device motion tracking and cleanup motion resources.
+    /// Stops device motion tracking and cleanup resources.
     func stopMotionUpdate() {
         motionManager.stopDeviceMotionUpdates()
+        self.connection = nil
     }
     
     /// Enables or disables scroll page mode for motion tracking.
@@ -155,37 +118,6 @@ class MouseActions {
             self.speed = 1
         }
     }
-       
-    /// Processes and streams motion data to the server.
-    ///
-    /// Applies speed multiplier and cubic transformation to motion values,
-    /// clips them to valid range (-511 to 511), and sends them in the format:
-    /// ```
-    /// +------------+----------+----------+
-    /// | 4-bit type | 10-bit y | 10-bit x |
-    /// +------------+----------+----------+
-    /// ```
-    ///
-    /// - Parameters:
-    ///   - remoteX: Roll value from device motion
-    ///   - remoteY: Pitch value from device motion
-    ///   - header: Packet type (0x0 for movement, 0x1 for scrolling)
-    private func streamData(_ remoteX: Double, _ remoteY: Double, header: Int) {
-        var x = Int(remoteX * 100.0)
-        var y = -Int(remoteY * 100.0)
-        
-        x = clip511(speed * x * x * x / 2048)
-        y = clip511(speed * y * y * y / 2048)
-        
-        var xy = ((y & 0x3FF) << 10) | (x & 0x3FF)
-        
-        if xy != 0 {
-            xy |= (header << 20)
-            connection?.send(Data([UInt8((xy & 0xFF0000) >> 16),
-                                   UInt8((xy & 0x00FF00) >> 8),
-                                   UInt8( xy & 0x0000FF)]))
-        }
-    }
     
     /// Clips an integer value to the range -511 to 511.
     ///
@@ -200,30 +132,62 @@ class MouseActions {
             return d
         }
     }
-
-    /// Processes motion data and sends cursor movement commands.
+       
+    /// Processes and streams motion data to the server.
     ///
-    /// Converts device motion (pitch and roll) to cursor movement steps and
-    /// sends them to the server with header type 0x0.
+    /// Applies speed multiplier and cubic transformation to motion values,
+    /// clips them to valid range (-511 to 511), and sends them in the format:
+    /// ```
+    /// +------------+----------+----------+
+    /// | 4-bit type | 10-bit y | 10-bit x |
+    /// +------------+----------+----------+
+    /// ```
+    /// Where type is:
+    /// - 0x0: Mouse movement
+    /// - 0x1: Page scrolling
     ///
     /// - Parameters:
     ///   - remoteX: Roll value from device motion
     ///   - remoteY: Pitch value from device motion
-    func move(_ remoteX: Double, _ remoteY: Double) {
-        streamData(remoteX, remoteY, header: 0x0)
+    ///   - scrolling: true: scroll page, false: move cursor
+    func streamMotion(_ remoteX: Double, _ remoteY: Double, scrolling: Bool) {
+        var header: Int
+        var slowDownFactor: Int
+        
+        if (scrolling) {
+            header = 0x1
+            slowDownFactor = 4096
+        } else {
+            header = 0x0
+            slowDownFactor = 2048
+        }
+        
+        var x = Int(remoteX * 100.0)
+        var y = -Int(remoteY * 100.0)
+        
+        x = clip511(speed * x * x * x / slowDownFactor)
+        y = clip511(speed * y * y * y / slowDownFactor)
+        
+        var xy = ((y & 0x3FF) << 10) | (x & 0x3FF)
+        
+        if xy != 0 {
+            xy |= (header << 20)
+            connection?.send(Data([UInt8((xy & 0xFF0000) >> 16),
+                                   UInt8((xy & 0x00FF00) >> 8),
+                                   UInt8( xy & 0x0000FF)]))
+        }
     }
     
-    /// Processes motion data and sends scroll commands.
-    ///
-    /// Converts device motion (pitch and roll) to scroll steps and
-    /// sends them to the server with header type 0x1.
-    ///
-    /// - Parameters:
-    ///   - remoteX: Roll value for horizontal scroll
-    ///   - remoteY: Pitch value for vertical scroll
-    func scroll(_ remoteX: Double, _ remoteY: Double) {
-        streamData(remoteX, remoteY, header: 0x1)
-    }
+    /// Button event data format:
+    /// ```
+    /// +------------+--------+--------+
+    /// | 0x20 (type)|  0x00  | action |
+    /// +------------+--------+--------+
+    /// ```
+    /// Where action is:
+    /// - 0x00/0x01: Left button press/release
+    /// - 0x02/0x03: Middle button press/release
+    /// - 0x04/0x05: Right button press/release
 
     /// Sends left mouse button events to the server.
     ///

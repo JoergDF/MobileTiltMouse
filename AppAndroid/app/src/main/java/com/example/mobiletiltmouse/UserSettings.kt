@@ -22,19 +22,13 @@ private const val TAG = "UserSettings"
  * UserSettings provides an interface for storing and retrieving user preferences
  * using Android's DataStore.
  *
- * It manages various settings including:
- * - STOP_CURSOR: Determines if the cursor should be stopped.
+ * It manages these settings:
+ * - STOP_CURSOR: Determines if the mouse cursor should be stopped.
  * - SCROLL_PAGE: Toggles the page scrolling ability.
- * - MOUSE_SPEED: Adjusts the mouse speed.
+ * - MOUSE_SPEED: Adjusts the speed of the mouse cursor.
  * - SHOW_MOUSE_BUTTONS: Configures visibility of mouse buttons.
- *
- * Preferences are exposed as Kotlin Flow objects, allowing reactive observation of changes.
- * Suspend functions are provided to update these settings asynchronously.
- *
- * Usage:
- * 1. Instantiate UserSettings with an application Context.
- * 2. Collect from getStopCursor, getScrollPage, getMouseSpeed, or getShowMouseButtons to observe the preferences.
- * 3. Use setStopCursor, setScrollPage, setMouseSpeed, and setShowMouseButtons to persist changes.
+ * - DEVICE_ID: Stores the device ID for identification.
+ * - SERVER_IDS: Stores a list of server IDs for identification.
  *
  * @param context The application context used to access the DataStore.
  */
@@ -45,6 +39,15 @@ class UserSettings(private val context: Context) {
         private val SCROLL_PAGE = booleanPreferencesKey("scroll_page")
         private val MOUSE_SPEED = floatPreferencesKey("mouse_speed")
         private val SHOW_MOUSE_BUTTONS = byteArrayPreferencesKey("show_mouse_buttons")
+        private val DEVICE_ID = byteArrayPreferencesKey("device_id")
+        private val SERVER_IDS = byteArrayPreferencesKey("server_ids")
+        private val REMOTE_KEY = byteArrayPreferencesKey("remote_key")
+    }
+
+    suspend fun deleteAll() {
+        context.dataStore.edit { preferences ->
+            preferences.clear()
+        }
     }
 
     val getStopCursor: Flow<Boolean> = context.dataStore.data
@@ -122,5 +125,65 @@ class UserSettings(private val context: Context) {
                 .map { if (it) 1.toByte() else 0.toByte() }
                 .toByteArray()
         }
+    }
+
+    val getDeviceId: Flow<ByteArray?> = context.dataStore.data
+        .catch {
+            if (it is IOException) {
+                Log.e(TAG, "Error reading preferences.", it)
+                emit(emptyPreferences())
+            } else {
+                throw it
+            }
+        }
+        .map { preferences -> preferences[DEVICE_ID] }
+
+    suspend fun setDeviceId(id: ByteArray?) {
+        context.dataStore.edit { preferences ->
+            if (id == null)
+                preferences.remove(DEVICE_ID)
+            else
+                preferences[DEVICE_ID] = id
+        }
+    }
+
+    val getServerIds: Flow<ByteArray?> = context.dataStore.data
+        .catch {
+            if (it is IOException) {
+                Log.e(TAG, "Error reading preferences.", it)
+                emit(emptyPreferences())
+            } else {
+                throw it
+            }
+        }
+        .map { preferences -> preferences[SERVER_IDS] }
+
+    suspend fun setServerIds(ids: ByteArray?) {
+        context.dataStore.edit { preferences ->
+            if (ids == null)
+                preferences.remove(SERVER_IDS)
+            else
+                preferences[SERVER_IDS] = ids
+        }
+    }
+
+    val getRemoteKey: Flow<ByteArray?> = context.dataStore.data
+        .catch {
+            if (it is IOException) {
+                Log.e(TAG, "Error reading preferences.", it)
+                emit(emptyPreferences())
+            } else {
+                throw it
+            }
+        }
+        .map { preferences -> preferences[REMOTE_KEY] }
+
+    suspend fun setRemoteKey(key: ByteArray?) {
+            context.dataStore.edit { preferences ->
+                if (key == null)
+                    preferences.remove(REMOTE_KEY)
+                else
+                    preferences[REMOTE_KEY] = key
+            }
     }
 }

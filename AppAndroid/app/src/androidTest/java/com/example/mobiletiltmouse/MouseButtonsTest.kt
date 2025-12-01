@@ -11,7 +11,7 @@ import org.junit.Assert.*
 
 
 class MouseButtonsTest {
-    class MockMouseActions() : MouseActions(null, null) {
+    class MockMouseActions() : MouseActions(null) {
         val leftEvents = mutableListOf<MouseButtonEvent>()
         val middleEvents = mutableListOf<MouseButtonEvent>()
         val rightEvents = mutableListOf<MouseButtonEvent>()
@@ -147,8 +147,8 @@ class MouseButtonsTest {
                 up()
             }
 
-        assertEquals(mockMouseActions.leftEvents[0], MouseButtonEvent.PRESS)
-        assertEquals(mockMouseActions.leftEvents[1], MouseButtonEvent.RELEASE)
+        assertEquals(MouseButtonEvent.PRESS, mockMouseActions.leftEvents[0])
+        assertEquals(MouseButtonEvent.RELEASE, mockMouseActions.leftEvents[1])
         assertTrue(mockMouseActions.middleEvents.isEmpty())
         assertTrue(mockMouseActions.rightEvents.isEmpty())
     }
@@ -171,8 +171,8 @@ class MouseButtonsTest {
             }
 
         assertTrue(mockMouseActions.leftEvents.isEmpty())
-        assertEquals(mockMouseActions.middleEvents[0], MouseButtonEvent.PRESS)
-        assertEquals(mockMouseActions.middleEvents[1], MouseButtonEvent.RELEASE)
+        assertEquals(MouseButtonEvent.PRESS, mockMouseActions.middleEvents[0])
+        assertEquals(MouseButtonEvent.RELEASE, mockMouseActions.middleEvents[1])
         assertTrue(mockMouseActions.rightEvents.isEmpty())
     }
 
@@ -195,8 +195,8 @@ class MouseButtonsTest {
 
         assertTrue(mockMouseActions.leftEvents.isEmpty())
         assertTrue(mockMouseActions.middleEvents.isEmpty())
-        assertEquals(mockMouseActions.rightEvents[0], MouseButtonEvent.PRESS)
-        assertEquals(mockMouseActions.rightEvents[1], MouseButtonEvent.RELEASE)
+        assertEquals(MouseButtonEvent.PRESS, mockMouseActions.rightEvents[0])
+        assertEquals(MouseButtonEvent.RELEASE, mockMouseActions.rightEvents[1])
     }
 
     @Test

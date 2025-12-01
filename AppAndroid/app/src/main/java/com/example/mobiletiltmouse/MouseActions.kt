@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.PI
 
 private const val TAG = "MouseAction"
@@ -53,11 +54,11 @@ enum class MouseButtonEvent {
  * @param connection An optional [Connection] instance for sending mouse action commands.
  */
 open class MouseActions(context: Context?,
-                        private var connection: Connection?,
-                        ioDispatcher: CoroutineDispatcher = Dispatchers.IO)
+                        val ioDispatcher: CoroutineDispatcher = Dispatchers.IO)
 {
     private val sensorManager = context?.getSystemService(Context.SENSOR_SERVICE) as SensorManager?
     private val sensor: Sensor? = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+    var connection: Connection? = null
     var scrollPage = false
     var stopCursor = true  // do not send data to server too early
     var speed = 5
@@ -66,35 +67,33 @@ open class MouseActions(context: Context?,
     /**
      * Processes sensor events and delegates to either scrolling or moving based on mode.
      *
-     * Extracts the pitch and roll values from the [SensorEvent] and:
-     * - Calls [scroll] if page scrolling mode is enabled.
-     * - Calls [move] if cursor movement is enabled.
-     *
      * @param event The sensor event containing rotation vector data.
      */
     fun sensorChanged(event: SensorEvent) {
-        val rotationMatrix = FloatArray(9)
-        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+        scope.launch {
+            val rotationMatrix = FloatArray(9)
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
 
-        val orientationAngles = FloatArray(3)
-        SensorManager.getOrientation(rotationMatrix, orientationAngles)
+            val orientationAngles = FloatArray(3)
+            SensorManager.getOrientation(rotationMatrix, orientationAngles)
 
-        val pitch = orientationAngles[1]
-        var roll  = orientationAngles[2]
+            val pitch = orientationAngles[1]
+            var roll = orientationAngles[2]
 
-        if (roll < -PI / 4.0) {
-            roll += (PI / 2.0).toFloat()
-        } else if (roll > PI / 4.0) {
-            roll -= (PI / 2.0).toFloat()
-        }
+            if (roll < -PI / 4.0) {
+                roll += (PI / 2.0).toFloat()
+            } else if (roll > PI / 4.0) {
+                roll -= (PI / 2.0).toFloat()
+            }
 
-        if (scrollPage) {
-            scroll(roll, pitch)
-        } else {
             if (!stopCursor) {
-                move(roll, pitch)
+                streamMotion(roll, pitch, scrollPage)
             }
         }
+    }
+
+    fun startMouseActionsConnection(connection: Connection?) {
+        this.connection = connection
     }
 
     /**
@@ -121,6 +120,7 @@ open class MouseActions(context: Context?,
      */
     fun stopSensorUpdate(listener: SensorEventListener) {
         sensorManager?.unregisterListener(listener)
+        this.connection = null
         Log.d(TAG, "Sensor update stopped")
     }
 
@@ -189,53 +189,38 @@ open class MouseActions(context: Context?,
      *
      * @param remoteX The horizontal component of the movement.
      * @param remoteY The vertical component of the movement.
-     * @param header An integer header used to differentiate between move (0x0) and scroll (0x1) events.
+     * @param scrolling true: scroll page, false: move cursor
      */
-    private fun streamData(remoteX: Float, remoteY: Float, header: Int) {
-        scope.launch {
-            var x = (remoteX * 100.0).toInt()
-            var y = (remoteY * 100.0).toInt()
+     suspend fun streamMotion(remoteX: Float, remoteY: Float, scrolling: Boolean) = withContext(ioDispatcher) {
+        var header: Int
+        var slowDownFactor: Int
 
-            x = clip511(speed * x * x * x / 2048)
-            y = clip511(speed * y * y * y / 2048)
-
-            var xy = ((y and 0x3FF) shl 10) or (x and 0x3FF)
-
-            if (xy != 0) {
-                xy = xy or (header shl 20)
-                connection?.send(
-                    byteArrayOf(
-                        ((xy and 0xFF0000) shr 16).toByte(),
-                        ((xy and 0x00FF00) shr 8).toByte(),
-                        (xy and 0x0000FF).toByte()
-                    )
-                )
-            }
+        if (scrolling) {
+            header = 0x1
+            slowDownFactor = 4096
+        } else {
+            header = 0x0
+            slowDownFactor = 2048
         }
-    }
 
-    /**
-     * Sends a mouse movement command.
-     *
-     * Delegates to [streamData] with a header value of 0x0 to indicate a move event.
-     *
-     * @param remoteX The horizontal component of the movement.
-     * @param remoteY The vertical component of the movement.
-     */
-    fun move(remoteX: Float, remoteY: Float) {
-        streamData(remoteX, remoteY, header = 0x0)
-    }
+        var x = (remoteX * 100.0).toInt()
+        var y = (remoteY * 100.0).toInt()
 
-    /**
-     * Sends a scroll command.
-     *
-     * Delegates to [streamData] with a header value of 0x1 to indicate a scroll event.
-     *
-     * @param remoteX The horizontal component of the movement.
-     * @param remoteY The vertical component of the movement.
-     */
-    fun scroll(remoteX: Float, remoteY: Float) {
-        streamData(remoteX, remoteY, header = 0x1)
+        x = clip511(speed * x * x * x / slowDownFactor)
+        y = clip511(speed * y * y * y / slowDownFactor)
+
+        var xy = ((y and 0x3FF) shl 10) or (x and 0x3FF)
+
+        if (xy != 0) {
+            xy = xy or (header shl 20)
+            connection?.send(
+                byteArrayOf(
+                    ((xy and 0xFF0000) shr 16).toByte(),
+                    ((xy and 0x00FF00) shr 8).toByte(),
+                    (xy and 0x0000FF).toByte()
+                )
+            )
+        }
     }
 
     /**

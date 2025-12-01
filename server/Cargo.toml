@@ -4,15 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dirs = "6.0.0" 
-enigo = "0.3.0"
-hex-literal = "1.0.0"
-quinn = "0.11.7"
+aes-gcm-siv = "0.11"
+dirs = "6.0" 
+enigo = { version = "0.6", default-features = false, features = ["xdo"] }
+hex-literal = "1.0"
+hkdf = "0.12"
+p12-keystore = "0.2"
+quinn = "0.11"
+rand = "0.9"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-sha2 = "0.10.8"
+sha2 = "0.10"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = "0.3.19"
-zeroconf = "0.15.1"
+zeroconf = "0.15"
+zeroize = "1.8"
 

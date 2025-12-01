@@ -3,19 +3,20 @@ import Foundation
 @testable import MobileTiltMouse
 
 @Suite struct MouseActionsTests {
-    class ConnectionMock: Connection {
+    class MockConnection: Connection {
         var sendData: Data?
         override func send(_ payload: Data) {
             sendData = payload
         }
     }
     
-    let connection: ConnectionMock
+    let connection: MockConnection
     let mouseAction: MouseActions
     
     init() {
-        connection = ConnectionMock(nil)
-        mouseAction = MouseActions(connection: connection)
+        connection = MockConnection(errAlert: ErrorAlert(), networkStatus: NWStatus(), pairing: nil)
+        mouseAction = MouseActions()
+        mouseAction.startMotionUpdate(connection: connection)
     }
     
     @Test(arguments: zip(MouseButtonEvent.allCases, [0, 1]))
@@ -65,13 +66,13 @@ import Foundation
     func move() {
         mouseAction.setSpeed(1.0)
         
-        mouseAction.move(0.01, -0.01)
+        mouseAction.streamMotion(0.01, -0.01, scrolling: false)
         #expect(connection.sendData == nil)
         
-        mouseAction.move(1.0, -1.0) // x=y=488 xy=0x07A1E8
+        mouseAction.streamMotion(1.0, -1.0, scrolling: false) // x=y=488 xy=0x07A1E8
         #expect(connection.sendData == Data([0x07, 0xA1, 0xE8]))
 
-        mouseAction.move(2.0, -2.0) // x=y=511 xy=0x7FDFF
+        mouseAction.streamMotion(2.0, -2.0, scrolling: false) // x=y=511 xy=0x7FDFF
         #expect(connection.sendData == Data([0x07, 0xFD, 0xFF]))
     }
     
@@ -79,8 +80,8 @@ import Foundation
     func scroll() {
         mouseAction.setSpeed(1.0)
         
-        mouseAction.scroll(-1.0, 1.0) // x=y=-488 xy=0x186218
-        #expect(connection.sendData == Data([0x18, 0x62, 0x18]))
+        mouseAction.streamMotion(-1.0, 1.0, scrolling: true) // x=y=-244 xy=0x1C330C
+        #expect(connection.sendData == Data([0x1C, 0x33, 0x0C]))
     }
 }
 

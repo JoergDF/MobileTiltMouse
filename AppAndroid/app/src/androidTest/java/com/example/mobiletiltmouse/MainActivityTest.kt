@@ -69,4 +69,17 @@ class MainActivityTest {
         assertFalse(ErrorAlert.show)
         composeTestRule.onNodeWithText("Error").assertDoesNotExist()
     }
+
+    @Test
+    fun pairingEntry() {
+        PairingStatus.showCodeEntry = true
+        composeTestRule.onNodeWithContentDescription("Pairing code entry").assertIsDisplayed()
+
+        composeTestRule.onNodeWithContentDescription("Digit 1").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Please enter pairing code").assertExists()
+
+        PairingStatus.showCodeEntry = false
+        composeTestRule.onNodeWithContentDescription("Pairing code entry").assertDoesNotExist()
+
+    }
 }

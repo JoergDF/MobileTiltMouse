@@ -64,7 +64,6 @@ fun MouseToggles(
                     .semantics { contentDescription = "Scroll mode" },
             )
         }
-
     }
 }
 

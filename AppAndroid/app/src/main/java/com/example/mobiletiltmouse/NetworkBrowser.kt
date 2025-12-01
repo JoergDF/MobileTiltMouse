@@ -11,7 +11,7 @@ import androidx.annotation.RequiresExtension
 
 
 private const val TAG = "NetworkBrowser"
-const val SERVICE_TYPE = "_mobiletiltmouse._udp."
+const val SERVICE_TYPE = "_mobiletiltmouse._udp." //"_services._dns-sd._udp" //"_mobiletiltmouse._udp."
 
 
 /**

@@ -1,36 +1,34 @@
 import Foundation
 import Network
 
-/// A class that monitors network interface availability.
-/// 
-/// The NetworkMonitor class uses Network framework's NWPathMonitor to:
+/// Monitors network interface availability.
+///
+/// It uses Network framework's NWPathMonitor to:
 /// - Monitor WiFi interface availability
 /// - Exclude cellular connections
-/// - Update the global [`networkStatus`](MobileMouseApp.swift) for UI updates
+/// - Update the global `networkStatus` for UI updates
 ///
-/// Example usage:
-/// ```swift
-/// let monitor = NetworkMonitor()
-/// monitor.startMonitoring()
-/// ```
-///
-/// The monitor updates [`networkStatus.interfaceDisabled`](MobileMouseApp.swift) when:
+/// The monitor updates `networkStatus.interfaceDisabled` when:
 /// - WiFi becomes available (false)
 /// - WiFi becomes unavailable (true)
-/// 
+///
+/// - Parameters:
+///     - networkStatus: For updating network status state.
+///     
 class NetworkMonitor {
     private var monitor: NWPathMonitor
-
+    private var networkStatus: NWStatus
     
-    init() {
-        monitor = NWPathMonitor(prohibitedInterfaceTypes: [.cellular]) 
+    init(networkStatus: NWStatus) {
+        monitor = NWPathMonitor(prohibitedInterfaceTypes: [.cellular])
+        self.networkStatus = networkStatus
     }
     
     func startMonitoring() {
         monitor.pathUpdateHandler = { path in
             lgg.info("NwMonitor status: \(String(describing:path.status), privacy: .public) \(path.availableInterfaces, privacy: .public)")
             
-            networkStatus.interfaceDisabled = (path.status == .unsatisfied)
+            self.networkStatus.interfaceDisabled = (path.status == .unsatisfied)
         }
         monitor.start(queue: .global(qos: .background))
     }

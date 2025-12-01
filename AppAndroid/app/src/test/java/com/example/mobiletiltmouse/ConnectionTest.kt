@@ -4,40 +4,32 @@ import org.junit.Test
 import org.junit.Assert.*
 import tech.kwik.core.QuicClientConnection
 import tech.kwik.core.QuicStream
-//import org.mockito.Mockito.*
 import org.mockito.kotlin.*
 
 class ConnectionTest {
 
-    class MockConnection : Connection(null, null) {
-        var sendData = mutableListOf<ByteArray>()
-        override fun send(data: ByteArray) {
-            sendData.add(data)
-        }
-    }
-
     @Test
     fun init() {
         val mockRemoteAccess =  mock<RemoteAccess>()
-        val conn = Connection(null, mockRemoteAccess)
+        val conn = Connection(null, mockRemoteAccess, null)
 
-        assertEquals(conn.connection, null)
-        assertEquals(conn.quicStream, null)
-        assertEquals(conn.savedAddressWithPort, null)
-        assertEquals(conn.remoteAccess, mockRemoteAccess)
+        assertNull(conn.connection)
+        assertNull(conn.quicStream)
+        assertNull(conn.savedAddressWithPort)
+        assertEquals(mockRemoteAccess, conn.remoteAccess)
     }
 
     @Test
     fun startConnection() {
-        val conn = Connection(null, null)
+        val conn = Connection(null, null, null)
 
         conn.startConnection(null)
-        assertEquals(conn.savedAddressWithPort, null)
-        assertEquals(conn.connection, null)
+        assertNull(conn.savedAddressWithPort)
+        assertNull(conn.connection)
 
         conn.startConnection("")
-        assertEquals(conn.savedAddressWithPort, null)
-        assertEquals(conn.connection, null)
+        assertNull(conn.savedAddressWithPort)
+        assertNull(conn.connection)
 
         // already connected, prevent a new connect attempt
         val mockQuicClientConnection = mock<QuicClientConnection>()
@@ -51,7 +43,7 @@ class ConnectionTest {
     fun stopConnection() {
         val mockQuicClientConnection = mock<QuicClientConnection>()
         val mockQuicStream = mock<QuicStream>()
-        val conn = Connection(null, null)
+        val conn = Connection(null, null, null)
 
         conn.connection = mockQuicClientConnection
         conn.quicStream = mockQuicStream
@@ -59,14 +51,14 @@ class ConnectionTest {
         conn.stopConnection()
 
         verify(mockQuicClientConnection).closeAndWait()
-        assertEquals(conn.connection, null)
-        assertEquals(conn.quicStream, null)
+        assertNull(conn.connection)
+        assertNull(conn.quicStream)
         assertFalse(NetworkState.isConnected)
     }
 
     @Test
     fun checkServerCertificate() {
-        val conn = Connection(null, null)
+        val conn = Connection(null, null, null)
 
         // empty or invalid certificate
         assertFalse(conn.checkServerCertificate(byteArrayOf()))

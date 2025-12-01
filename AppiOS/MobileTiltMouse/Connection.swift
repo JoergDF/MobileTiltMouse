@@ -5,62 +5,52 @@ import CryptoKit
 
 
 
-let alpnName = "mobiletiltmouseproto"
-let connectionTimeout = 30  // seconds
+private let alpnName = "mobiletiltmouseproto"
+private let connectionTimeout = 30  // seconds
+private let serverCertHashString = "50f3eea7c26b1c2a22d3593c37e8f66afcc431265c93c0ce1f4a7544aa7a6c55"
+private let clientCertPassword = "mtm_client"
+
 
 /// Manages QUIC network connections with the remote server that controls mouse pointer.
 ///
-/// The Connection class handles establishing, maintaining and closing secure QUIC connections. 
+/// It handles establishing, maintaining and closing secure QUIC connections.
 /// It provides:
 /// - Secure connection setup with certificate verification 
 /// - Client authentication using a PKCS#12 client certificate
 /// - Connection state monitoring and UI updates
-/// - Data transmission
-///
-/// Example usage:
-/// ```swift
-/// // Create connection instance
-/// let connection = Connection(remoteAccess)
-///
-/// // Start connection to endpoint
-/// connection.startConnection(endpoint)
-///
-/// // Send data
-/// connection.send(payload)
-///
-/// // Stop connection
-/// connection.stopConnection()
-/// ```
+/// - Data transmission and reception
+/// - Starts pairing process
 ///
 /// The class uses the Network framework for QUIC protocol support and CryptoKit
-/// for cryptographic operations. It integrates with [`RemoteAccess`](RemoteAccess.swift)
-/// for network management and updates the global [`networkStatus`](MobileMouseApp.swift)
-/// for UI state changes.
+/// for cryptographic operations. It updates the global `networkStatus` for UI state changes.
 ///
 /// Only one active connection is allowed at a time. Connection attempts while a connection exists will be ignored.
-/// 
+///
+///  - Parameters:
+///     - errAlert: For showing error alert
+///     - networkStatus: Status of network connectivity
+///     - pairing: Optional ``Pairing`` object
+///
 class Connection {
-    var connection: NWConnection?
+    var nwConnection: NWConnection?
     var endpoint: NWEndpoint?
-    weak var remoteAccess: RemoteAccess?
+    var errAlert: ErrorAlert
+    var networkStatus: NWStatus
+    weak var pairing: Pairing?
     
-    init(_ remoteAccess: RemoteAccess?) {
-        self.remoteAccess = remoteAccess
+    init(errAlert: ErrorAlert, networkStatus: NWStatus, pairing: Pairing?) {
+        self.errAlert = errAlert
+        self.networkStatus = networkStatus
+        self.pairing = pairing
     }
     
     /// Shows an alert to the user when server certificate verification fails.
-    ///
-    /// The alert uses the global `errAlert` observable object to trigger the alert display
-    /// in the UI layer.
     private func serverCertificateAlert() {
         errAlert.error = true
         errAlert.message = "Check of server certificate failed."
     }
     
     /// Shows an alert to the user when client certificate loading fails.
-    ///
-    /// The alert uses the global `errAlert` observable object to trigger the alert display
-    /// in the UI layer.
     private func clientCertificateAlert() {
         errAlert.error = true
         errAlert.message = "Loading of client certificate failed."
@@ -87,7 +77,7 @@ class Connection {
             lgg.error("Error: Could not load client certificate")
             return nil
         }
-        let p12Options = [kSecImportExportPassphrase as String: "mtm"]
+        let p12Options = [kSecImportExportPassphrase as String: clientCertPassword]
         var rawItems: CFArray?
         let status = SecPKCS12Import(p12Data as CFData, p12Options as CFDictionary, &rawItems)
         guard status == errSecSuccess else {
@@ -149,12 +139,13 @@ class Connection {
             
             // reference hash of server certificate (in DER format)
             // is output of command line tool: shasum -a 256 cert.der
-            let referenceCertHash: [UInt8] = [
-                0x4f, 0x4b, 0xf5, 0xb8, 0x6e, 0xa4, 0x3d, 0xbc,
-                0xf9, 0xae, 0x83, 0xd2, 0xcb, 0x6c, 0xfc, 0x0e,
-                0xd8, 0xc9, 0xda, 0x9e, 0xf0, 0x27, 0xb8, 0x02,
-                0x6e, 0xe1, 0x84, 0x81, 0x84, 0x52, 0xf2, 0x14
-            ]
+            // convert hex-string of hash to integer
+            var referenceCertHash = Array<UInt8>(repeating: 0, count: 32)
+            let serverCertHashChars = Array(serverCertHashString)
+            for i in stride(from: 0, to: serverCertHashChars.count, by: 2) {
+                referenceCertHash[i / 2] = UInt8("\(serverCertHashChars[i])\(serverCertHashChars[i+1])", radix: 16) ?? 0
+            }
+
             if !digest.elementsEqual(referenceCertHash) {
                 lgg.error("Error: Certificate hash is wrong")
                 self?.serverCertificateAlert()
@@ -174,14 +165,14 @@ class Connection {
     /// - Sets application protocol name for ALPN negotiation
     /// - Sets up unidirectional communication
     /// - Configures connection timeout
-    /// - Loading and attaching a self-signed client certificate for mutual TLS authentication
+    /// - Loading and attaching a self-signed client certificate for mutual authentication
     /// - Verification of self-signed server certificate
     ///
     /// - Returns: Configured NWParameters for QUIC connection
     /// - Important: The connection will fail if certificate checks do not pass.
     func quicNWParameters() -> NWParameters {
         let options = NWProtocolQUIC.Options(alpn: [alpnName])
-        options.direction = .unidirectional
+        options.direction = .bidirectional
         options.idleTimeout = connectionTimeout * 1000
         
         let securityProtocolOptions: sec_protocol_options_t = options.securityProtocolOptions
@@ -214,23 +205,16 @@ class Connection {
     /// Only one connection can be active at a time. Subsequent calls while a connection
     /// exists will be ignored.
     ///
+    /// When connection is viable, pairing process is started.
+    ///
     /// State changes are monitored and trigger UI updates:
     /// - `.ready` → Sets connected status to true
     /// - `.cancelled` → Sets connected status to false
-    /// - `.failed` → Connectopn stopped
-    ///
-    /// Example usage:
-    /// ```swift
-    /// // Connect to specific endpoint
-    /// connection.startConnection(endpoint)
-    /// 
-    /// // Reconnect using previously stored endpoint
-    /// connection.startConnection()
-    /// ```
+    /// - `.failed` → Connection stopped, sets connected status to false
     ///
     /// - Parameter endpoint: Optional NWEndpoint to connect to. If nil, uses previously stored endpoint.
     func startConnection(_ endpoint: NWEndpoint? = nil) {
-        guard connection == nil else {
+        guard nwConnection == nil else {
             lgg.info("Connection already started")
             return
         }
@@ -244,48 +228,48 @@ class Connection {
         
         if let nwEndpoint = self.endpoint {
             let params = quicNWParameters()
-            connection = NWConnection(to: nwEndpoint, using: params)
+            nwConnection = NWConnection(to: nwEndpoint, using: params)
             lgg.info("Connecting to endpoint: \(nwEndpoint.debugDescription, privacy: .public)");
         }
         
-        connection?.stateUpdateHandler = { [weak self] newState in
+        nwConnection?.stateUpdateHandler = { [weak self] newState in
             switch (newState) {
             case .setup:
                 lgg.info("Connection state: setup")
             case .preparing:
                 lgg.info("Connection state: preparing")
             case .ready:
-                networkStatus.connected = true // inform UI about connection status
                 lgg.info("Connection state: ready")
+                if let remoteEndpoint = self?.nwConnection?.currentPath?.remoteEndpoint {
+                    lgg.info("Connected to \(remoteEndpoint.debugDescription, privacy: .public)")
+                    if let interface = remoteEndpoint.interface {
+                        lgg.info("Connected over interface type \(String(describing: interface.type), privacy: .public) with name \(interface.name, privacy: .public)")
+                    }
+                }
+                self?.pairing?.startPairing(connection: self)
             case .cancelled:
-                networkStatus.connected = false // inform UI about connection status
+                self?.networkStatus.connected = false // inform UI about connection status
                 lgg.info("Connection state: cancelled")
             case .waiting(let err):
                 lgg.info("Connection state: waiting, error: \(err, privacy: .public)")
             case .failed(let err):
                 lgg.info("Connection state: failed, error: \(err, privacy: .public)")
-                networkStatus.connected = false // inform UI about connection status
+                self?.networkStatus.connected = false // inform UI about connection status
                 self?.stopConnection()
             default:
                 lgg.info("Connection state: unknown: \(String(describing: newState), privacy: .public)")
             }
         }
         
-        connection?.viabilityUpdateHandler = { [weak self] isViable in
+        nwConnection?.viabilityUpdateHandler = { isViable in
             if (isViable) {
                 lgg.info("Connection is viable")
-                if let remoteEndpoint = self?.connection?.currentPath?.remoteEndpoint {
-                    lgg.info("Connected to \(remoteEndpoint.debugDescription, privacy: .public)")
-                    if let interface = remoteEndpoint.interface {
-                        lgg.info("Connected over interface type \(String(describing: interface.type), privacy: .public) with name \(interface.name, privacy: .public)")
-                    }
-                }
             } else {
                 lgg.info("Connection is not viable")
             }
         }
         
-        connection?.betterPathUpdateHandler = { betterPathAvailable in
+        nwConnection?.betterPathUpdateHandler = { betterPathAvailable in
             if (betterPathAvailable) {
                 lgg.info("Connection: A better path is availble")
             } else {
@@ -293,23 +277,51 @@ class Connection {
             }
         }
         
-        connection?.start(queue: .global())
+        nwConnection?.start(queue: .global())
     }
     
-    /// Sends payload data over the QUIC connection.
+    /// Sends message data over the QUIC connection.
     ///
-    /// Sends the provided data using the established QUIC connection. If a send error occurs,
-    /// it triggers a network restart. The method silently returns if no connection exists.
+    /// The method silently returns if no connection exists.
     ///
-    /// - Parameter payload: The data to send over the connection
-    func send(_ payload: Data) {
-        connection?.send(content: payload, completion: .contentProcessed({ sendError in
+    /// - Parameter message: The data to send over the connection
+    func send(_ message: Data) {
+        nwConnection?.send(content: message, completion: .contentProcessed({ sendError in
             if let error = sendError {
                 lgg.error("Error sending data: \(error, privacy: .public)")
             }
         })
         )
     }
+    
+    /// Send message data and receives response
+    ///
+    /// The method silently returns if no connection exists.
+    ///
+    /// - Parameters:
+    ///     - sendMessage: The data to send over the connection
+    ///     - receive: closure with parameter of type Data, which contains the received bytes
+    func sendReceive(sendMessage: Data, receive: @escaping (Data?) -> Void) {
+        nwConnection?.send(content: sendMessage, completion: .contentProcessed({ sendError in
+            if let error = sendError {
+                lgg.error("Error sending data in sendReceive: \(error, privacy: .public)")
+            } else {
+                self.nwConnection?.receive(minimumIncompleteLength: 1, maximumLength: 33) {
+                    (content: Data?, contentContext: NWConnection.ContentContext?, isComplete: Bool, receiveError: NWError?) in
+                    if let error = receiveError {
+                        lgg.error("Error receiving data in sendReceive: \(error, privacy: .public)")
+                    } else if let data = content {
+                        //lgg.info("Received data: \(data, privacy: .public)")
+                        receive(data)
+                    } else {
+                        lgg.info("Received content is nil")
+                    }
+                }
+            }
+        })
+        )
+    }
+
     
     /// Stops and cleans up the QUIC network connection.
     ///
@@ -319,14 +331,14 @@ class Connection {
     /// 3. Removes the connection reference
     func stopConnection() {
         lgg.info("Stopping connection")
-        connection?.cancel()
+        nwConnection?.cancel()
         // wait maximum 1 second for connection to become cancelled
         for _ in 1...100 {
             Thread.sleep(forTimeInterval: 0.01)
-            if connection?.state == .cancelled {
+            if nwConnection?.state == .cancelled {
                 break
             }
         }
-        connection = nil
+        nwConnection = nil
     }
 }
