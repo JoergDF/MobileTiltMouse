@@ -25,21 +25,21 @@ class ClientCertificateTest {
     @OptIn(ExperimentalStdlibApi::class)
     @Test
     fun loadClientCertificate() = runTest {
-        val cert = conn.loadClientCertificate()
+        val (cert, _) = conn.loadClientCertificateAndKey()
         val certDer = cert.encoded
 
         val md = MessageDigest.getInstance("SHA-256")
         val hashCert = md.digest(certDer)
 
         assertArrayEquals(
-            "019641942271cf481efdb9416b0a06e5ae42f1d8d28dd30ecf6946149fdbc002".hexToByteArray(),
+            "78f63567c0bb005c25cea87a4483eb7f97a31ed65882f3907a4539bde9dfa189".hexToByteArray(),
             hashCert
         )
     }
 
     @Test
     fun loadClientKey() = runTest {
-        val key = conn.loadClientKey()
+        val (_, key) = conn.loadClientCertificateAndKey()
 
         assertEquals("RSA", key.algorithm)
         assertEquals("PKCS#8", key.format)

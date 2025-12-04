@@ -107,7 +107,7 @@ open class Connection(private val context: Context?, val remoteAccess: RemoteAcc
      *
      * @return A Pair containing the client's X509Certificate and PrivateKey.
      */
-    private fun loadClientCertificateAndKey(): Pair<X509Certificate, PrivateKey> {
+    fun loadClientCertificateAndKey(): Pair<X509Certificate, PrivateKey> {
         val inputStream = context!!.assets.open("cert.p12")
         val keyStore = KeyStore.getInstance("PKCS12")
         keyStore.load(inputStream, clientCertPassword.toCharArray())

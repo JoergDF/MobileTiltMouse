@@ -10,7 +10,7 @@ An Android application that lets you control your computer's mouse using its cor
 - Checks self-signed server certificate
 - Provides self-signed client certificate
 - Device pairing, device IDs stored encrypted
-- Tested on API 29 phone and API 35 emulator (API 29 emulator fails: Network service cannot be discovered)
+- Tested on API 29 phone and API 36 emulator (API 29 emulator fails: Network service cannot be discovered)
 
 
 ## Screenshots of User Interface
