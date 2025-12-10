@@ -22,15 +22,7 @@ class MockConnection: Connection {
 }
 
 // do not run these tests in parallel as there are permanently stored values in UserDefaults and Keychain
-@Suite(.serialized) class PairingTests {  // deinit requires class instead of struct
-
-    init() {
-        
-    }
-    
-    deinit {
-        
-    }
+@Suite(.serialized) struct PairingTests {
     
     @Test
     func initialize() {
@@ -192,6 +184,45 @@ class MockConnection: Connection {
     }
     
     @Test
+    func exitPairing() {
+        let conn = MockConnection()
+        let pairing = Pairing(mouseAction: MouseActions(), pairingStatus: PairingStatus(), networkStatus: NWStatus())
+        pairing.connection = conn
+        pairing.networkStatus.connected = false
+        pairing.pairingStatus.showCodeEntry = true
+
+        pairing.exitPairing()
+        #expect(pairing.mouseAction?.connection != nil)
+        #expect(pairing.connection == nil)
+        #expect(pairing.networkStatus.connected)
+        #expect(pairing.pairingStatus.showCodeEntry == false)
+    }
+    
+    @Test
+    func resetPairing() {
+        let pairing = Pairing(mouseAction: MouseActions(), pairingStatus: PairingStatus(), networkStatus: NWStatus())
+        
+        let initialDeviceId = Data([1,2,3])
+        let initialServerId = Data([4,5,6])
+        let initialRemoteKey = Data([7,8,9])
+        
+        UserDefaults.standard.set(initialDeviceId, forKey: "deviceId")
+        UserDefaults.standard.set(initialServerId, forKey: "serverIDs")
+        UserDefaults.standard.set(initialRemoteKey, forKey: "remoteKey")
+        
+        // Ensure the initial values are set correctly
+        #expect(UserDefaults.standard.data(forKey: "deviceId") == initialDeviceId)
+        #expect(UserDefaults.standard.data(forKey: "serverIDs") == initialServerId)
+        #expect(UserDefaults.standard.data(forKey: "remoteKey") == initialRemoteKey)
+        
+        pairing.resetPairing()
+        
+        #expect(UserDefaults.standard.data(forKey: "deviceId") == nil)
+        #expect(UserDefaults.standard.data(forKey: "serverIDs") == nil)
+        #expect(UserDefaults.standard.data(forKey: "remoteKey") == nil)
+    }
+    
+    @Test
     func serverIDs() {
         UserDefaults.standard.removeObject(forKey: "serverIDs")
         let data = Data([3,4,5])
@@ -249,16 +280,25 @@ class MockConnection: Connection {
     
     @Test
     func Crypto() {
-        let crypt = MobileTiltMouse.Crypto(keyChainService: "testService", keyChainAccount: "testKey")
+        // invalid key tag
+        #expect(MobileTiltMouse.Crypto(keyTag: "") == nil)
         
-        let key1 = crypt.getKey()
-        let key2 = crypt.getKey()
+        // valid key tag
+        let crypt = MobileTiltMouse.Crypto(keyTag: "testKey")!
+        
+        // get key
+        let key1 = crypt.getPrivateKey()
+        let key2 = crypt.getPrivateKey()
+        #expect(key1 != nil)
         #expect(key1 == key2)
         
+        // encrypt/decrypt
         let data = Data([1,2,3])
         let encrypted = crypt.encrypt(data)
         #expect(encrypted != nil)
+        #expect(encrypted != data)
         let decrypted = crypt.decrypt(encrypted!)
+        #expect(decrypted != encrypted)
         #expect(decrypted == data)
         
         // Encrypting the same data twice should produce different results
@@ -266,7 +306,7 @@ class MockConnection: Connection {
         #expect(encrypted != encrypted2)
         
         // Decryption with a different key should fail
-        let crypt2 = MobileTiltMouse.Crypto(keyChainService: "testService", keyChainAccount: "wrongKey")
+        let crypt2 = MobileTiltMouse.Crypto(keyTag: "testKey2")!
         let decryptedWrongKey = crypt2.decrypt(encrypted!)
         #expect(decryptedWrongKey == nil)
         
@@ -280,44 +320,5 @@ class MockConnection: Connection {
         let corruptedEncryptedData = encrypted!.dropLast(1) + Data([encrypted!.last! ^ 0xFF])
         let decryptedCorruptedData = crypt.decrypt(corruptedEncryptedData)
         #expect(decryptedCorruptedData == nil)
-    }
-    
-    @Test
-    func exitPairing() {
-        let conn = MockConnection()
-        let pairing = Pairing(mouseAction: MouseActions(), pairingStatus: PairingStatus(), networkStatus: NWStatus())
-        pairing.connection = conn
-        pairing.networkStatus.connected = false
-        pairing.pairingStatus.showCodeEntry = true
-
-        pairing.exitPairing()
-        #expect(pairing.mouseAction?.connection != nil)
-        #expect(pairing.connection == nil)
-        #expect(pairing.networkStatus.connected)
-        #expect(pairing.pairingStatus.showCodeEntry == false)
-    }
-    
-    @Test
-    func restartPairing() {
-        let pairing = Pairing(mouseAction: MouseActions(), pairingStatus: PairingStatus(), networkStatus: NWStatus())
-        
-        let initialDeviceId = Data([1,2,3])
-        let initialServerId = Data([4,5,6])
-        let initialRemoteKey = Data([7,8,9])
-        
-        UserDefaults.standard.set(initialDeviceId, forKey: "deviceId")
-        UserDefaults.standard.set(initialServerId, forKey: "serverIDs")
-        UserDefaults.standard.set(initialRemoteKey, forKey: "remoteKey")
-        
-        // Ensure the initial values are set correctly
-        #expect(UserDefaults.standard.data(forKey: "deviceId") == initialDeviceId)
-        #expect(UserDefaults.standard.data(forKey: "serverIDs") == initialServerId)
-        #expect(UserDefaults.standard.data(forKey: "remoteKey") == initialRemoteKey)
-        
-        pairing.resetPairing()
-        
-        #expect(UserDefaults.standard.data(forKey: "deviceId") == nil)
-        #expect(UserDefaults.standard.data(forKey: "serverIDs") == nil)
-        #expect(UserDefaults.standard.data(forKey: "remoteKey") == nil)
     }
 }

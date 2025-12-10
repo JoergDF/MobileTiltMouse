@@ -62,9 +62,10 @@ class Pairing {
     /// - Returns: A `Data` representation of the symmetric encryption key.
     func getRemoteKey() -> Data {
         let userDefaultsKey = "remoteKey"
-        let crypt = Crypto(keyChainService: "serverID", keyChainAccount: "serverID.remoteKey.key")
-        if let sealedRemoteKey = UserDefaults.standard.data(forKey: userDefaultsKey) {
-            if let remoteKey = crypt.decrypt(sealedRemoteKey) {
+        let crypt = Crypto(keyTag: "serverID.remoteKey")
+
+        if let encryptedRemoteKey = UserDefaults.standard.data(forKey: userDefaultsKey) {
+            if let remoteKey = crypt?.decrypt(encryptedRemoteKey) {
                 return remoteKey
             } else {
                 lgg.error("Failed to decrypt remote key, a new one will be created.")
@@ -72,8 +73,8 @@ class Pairing {
         }
         
         let newRemoteKey = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
-        if let sealedNewRemoteKey = crypt.encrypt(newRemoteKey) {
-            UserDefaults.standard.set(sealedNewRemoteKey, forKey: userDefaultsKey)
+        if let encryptedNewRemoteKey = crypt?.encrypt(newRemoteKey) {
+            UserDefaults.standard.set(encryptedNewRemoteKey, forKey: userDefaultsKey)
         } else {
             lgg.error("Encryption and storage of remote key failed.")
         }
@@ -128,9 +129,9 @@ class Pairing {
     /// - Returns: Device ID hash as `Data`
     func getDeviceId() -> Data {
         let userDefaultsKey = "deviceId"
-        let crypt = Crypto(keyChainService: "deviceId", keyChainAccount: "deviceId.key")
-        if let sealedDeviceId = UserDefaults.standard.data(forKey: userDefaultsKey) {
-            if let deviceId = crypt.decrypt(sealedDeviceId) {
+        let crypt = Crypto(keyTag: "deviceId.key")
+        if let encryptedDeviceId = UserDefaults.standard.data(forKey: userDefaultsKey) {
+            if let deviceId = crypt?.decrypt(encryptedDeviceId) {
                 return deviceId
             } else {
                 lgg.error("Failed to decrypt device ID, a new one will be created.")
@@ -139,8 +140,8 @@ class Pairing {
         
         // Device ID could not be retrieved, create new one
         let newDeviceId = createDeviceId()
-        if let sealedNewDeviceId = crypt.encrypt(newDeviceId) {
-            UserDefaults.standard.set(sealedNewDeviceId, forKey: userDefaultsKey)
+        if let encryptedNewDeviceId = crypt?.encrypt(newDeviceId) {
+            UserDefaults.standard.set(encryptedNewDeviceId, forKey: userDefaultsKey)
         } else {
             lgg.error("Encryption and storage of device ID failed.")
         }
@@ -265,7 +266,7 @@ class Pairing {
 class ServerIDs {
     let maxIDs = 5
     let userDefaultsKey = "serverIDs"
-    let crypt = Crypto(keyChainService: "serverId", keyChainAccount: "serverId.key")
+    let crypt = Crypto(keyTag: "serverId.key")
     
     /// Initializes the ServerIDs manager.
     ///
@@ -275,14 +276,15 @@ class ServerIDs {
         // fill UserDefaults with dummy server IDs on very first run of the app
         if UserDefaults.standard.array(forKey: userDefaultsKey) == nil {
             lgg.info("Initializing UserDefaults with dummy server IDs.")
+            assert(crypt != nil)
             let dummyIDs = (0..<maxIDs).map { _ in
                 let dummyId = (0..<32).map { _ in UInt8.random(in: 0..<255) }
-                return crypt.encrypt(hash(Data(dummyId)))
+                return crypt?.encrypt(hash(Data(dummyId)))
             }
             UserDefaults.standard.set(dummyIDs, forKey: userDefaultsKey)
         }
-        // log all server id hashes
-        //getIDHashes().forEach { lgg.info("\($0.map { String(format: "%02hhx", $0) }.joined(separator: ":"))") }
+        // log all server ids
+        //getIDs().forEach { lgg.info("\($0.map { String(format: "%02hhx", $0) }.joined(separator: ":"))") }
     }
     
     /// Retrieves the list of encrypted server IDs from `UserDefaults`.
@@ -300,7 +302,7 @@ class ServerIDs {
     /// - Returns: `true` if the server ID is recognized, `false` otherwise.
     func isKnownID(_ serverID: Data) -> Bool {
         for id in getIDs() {
-            if hash(serverID) == crypt.decrypt(id) {
+            if hash(serverID) == crypt?.decrypt(id) {
                 return true
             }
         }
@@ -319,7 +321,7 @@ class ServerIDs {
         while ids.count >= maxIDs {
             ids.removeLast()
         }
-        if let encryptedID = crypt.encrypt(hash(serverID)) {
+        if let encryptedID = crypt?.encrypt(hash(serverID)) {
             ids.insert(encryptedID, at: 0)
             UserDefaults.standard.set(ids, forKey: userDefaultsKey)
         } else {
@@ -338,132 +340,154 @@ class ServerIDs {
 }
 
 
-/// A utility class for handling cryptographic operations, including secure storage
-/// of symmetric keys in the Keychain and encryption/decryption of data.
+/// Cryptographic helper that performs asymmetric encryption/decryption using a Secure Enclave-backed key.
 ///
-/// This class abstracts the complexities of `Keychain` services and `ChaChaPoly` encryption,
-/// providing a simplified interface for managing sensitive data. It ensures that encryption keys
-/// are securely stored and retrieved, and that data can be encrypted and decrypted reliably.
+/// This class manages a persistent EC key pair stored in the Secure Enclave and uses the public key
+/// to encrypt small secrets and the enclave-backed private key to decrypt them. The private key
+/// is non-exportable and remains protected by the Secure Enclave; callers receive only encrypted
+/// blobs suitable for storage. On unsuccessful crypto operations `nil` is returned and failures logged.
 ///
-/// - Parameters:
-///   - keyChainService: A string identifier for the Keychain service.
-///   - keyChainAccount: A string identifier for the Keychain account.
+/// - Parameters: keyTag: A short identifier that is combined with the app bundle identifier to form the
+///   application tag used to locate or create the Secure Enclave key pair in the Keychain.
 class Crypto {
-    var keyChainService: String
-    var keyChainAccount: String
+    let keyAlgorithm = SecKeyAlgorithm.eciesEncryptionCofactorVariableIVX963SHA256AESGCM
+    var keyTag: Data
     
-    init(keyChainService: String, keyChainAccount: String) {
-        self.keyChainService = keyChainService
-        self.keyChainAccount = keyChainAccount
+    init?(keyTag: String) {
+        guard !keyTag.isEmpty else {
+            lgg.error("Error: empty key tag in pairing/crypto")
+            return nil
+        }
+        guard let bundleId = Bundle.main.bundleIdentifier else {
+            lgg.error("Error getting bundle identifier in pairing/crypto")
+            return nil
+        }
+        guard let tag = (bundleId + "." + keyTag).data(using: .utf8) else {
+            lgg.error("Error creating key tag in pairing/crypto")
+            return nil
+        }
+        self.keyTag = tag
     }
     
-    /// Saves data securely to the Keychain.
+    /// Creates a new persistent private key inside the Secure Enclave.
     ///
-    /// If an item with the same service and account exists, it updates the data.
-    /// Otherwise, it adds a new item to the Keychain.
-    /// - Parameters:
-    ///   - data: The data to store.
-    ///   - service: The Keychain service identifier.
-    ///   - account: The Keychain account identifier.
-    func saveToKeychain(data: Data, service: String, account: String) {
-        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                    kSecAttrService as String: service,
-                                    kSecAttrAccount as String: account]
-        let attributes: [String: Any] = [kSecValueData as String: data]
-        
-        // There might be the same item from a previous installation of the app
-        // that must be updated otherwise the item can be added.
-        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
-            query[kSecValueData as String] = data
-            let addStatus = SecItemAdd(query as CFDictionary, nil)
-            if addStatus != errSecSuccess {
-                lgg.error("Failed to save data to keychain: \(status)")
-            }
-        } else if status != errSecSuccess {
-            lgg.error("Failed to update data of keychain: \(status)")
+    /// The created key is stored permanently in the device keychain and tagged using `keyTag`.
+    ///
+    /// - Returns: The newly created `SecKey` private key reference on success, or `nil` on failure
+    ///   (an error is logged).
+    func createPrivateKey() -> SecKey? {
+        let accessControl = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            [],
+            nil)
+        let attributes: NSDictionary = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: 256,
+            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: true,
+                kSecAttrApplicationTag as String: keyTag,
+                kSecAttrAccessControl as String: (accessControl as Any)
+            ]
+        ]
+
+        var error: Unmanaged<CFError>?
+        if let privateKey = SecKeyCreateRandomKey(attributes, &error) {
+            return privateKey
+        } else {
+            lgg.error("Error creating key: \(error!.takeRetainedValue())")
+            return nil
         }
     }
     
-    /// Loads data securely from the Keychain.
+    /// Loads an existing private key from the Keychain using the configured application tag.
     ///
-    /// Searches for an item matching the given service and account identifiers.
-    /// Returns the stored data if found, otherwise returns nil.
-    /// - Parameters:
-    ///   - service: The Keychain service identifier.
-    ///   - account: The Keychain account identifier.
-    /// - Returns: The data from the Keychain, or nil if not found.
-    func loadFromKeychain(service: String, account: String) -> Data? {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                    kSecAttrService as String: service,
-                                    kSecAttrAccount as String: account,
-                                    kSecMatchLimit as String: kSecMatchLimitOne,
-                                    kSecReturnData as String: true]
+    /// - Returns: A `SecKey` reference to the existing private key if found, otherwise `nil`.
+    func loadPrivateKey() -> SecKey? {
+        let query: NSDictionary = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrApplicationTag as String: keyTag,
+            kSecReturnRef as String: true
+        ]
         
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecSuccess {
-            return item as? Data
+            return (item as! SecKey)
+        }
+        return nil
+    }
+
+    /// Obtains a usable private key, preferring an existing key and creating one if necessary.
+    ///
+    /// This helper first attempts to load the key via `loadPrivateKey()`. If no key is present,
+    /// it will call `createPrivateKey()` to generate and persist a new enclave-backed key pair.
+    ///
+    /// - Returns: A `SecKey` reference to the private key or `nil` if none could be obtained.
+    func getPrivateKey() -> SecKey? {
+        if let key = loadPrivateKey() {
+            return key
+        } else if let newKey = createPrivateKey() {
+            return newKey
+        }
+        return nil
+    }
+
+    /// Encrypts the provided `Data` using the Secure Enclave public key.
+    ///
+    /// The method obtains the public key corresponding to the enclave private key and uses the
+    /// configured `keyAlgorithm` to encrypt the input bytes. The encrypted result is returned
+    /// as a `Data` blob suitable for storage.
+    ///
+    /// - Parameter data: Plaintext `Data` to encrypt.
+    /// - Returns: Encrypted `Data` on success, or `nil` on failure (an error is logged).
+    func encrypt(_ data: Data) -> Data? {
+        if let privateKey = getPrivateKey() {
+            if let publicKey = SecKeyCopyPublicKey(privateKey) {
+                if SecKeyIsAlgorithmSupported(publicKey, .encrypt, keyAlgorithm) {
+                    var error: Unmanaged<CFError>?
+                    if let encryptedData = SecKeyCreateEncryptedData(
+                        publicKey,
+                        keyAlgorithm,
+                        data as CFData,
+                        &error
+                    ) {
+                        return (encryptedData as Data)
+                    } else {
+                        lgg.error("Encryption in pairing failed: \(error!.takeRetainedValue())")
+                    }
+                }
+            }
         }
         return nil
     }
     
-    /// Retrieves a symmetric encryption key from the Keychain, or generates and stores a new one if it doesn't exist.
+    /// Decrypts the provided data using the Secure Enclave private key.
     ///
-    /// This method ensures that a persistent symmetric key is available for cryptographic operations.
-    /// If a key associated with the `keyChainService` and `keyChainAccount` is found in the Keychain,
-    /// it is returned. Otherwise, a new 256-bit `SymmetricKey` is generated, securely stored in the Keychain,
-    /// and then returned.
+    /// The method uses the enclave-backed private key and the configured `keyAlgorithm` to decrypt
+    /// a previously produced encrypted blob. Because the private key is protected by the
+    /// Secure Enclave, decryption succeeds only if the key exists and the algorithm is supported.
     ///
-    /// - Returns: A `SymmetricKey` instance for encryption and decryption.
-    func getKey() -> SymmetricKey {
-        if let keyData = loadFromKeychain(service: keyChainService, account: keyChainAccount) {
-            return SymmetricKey(data: keyData)
-        } else {
-            let key = SymmetricKey(size: .bits256)
-            let keyData = key.withUnsafeBytes { Data($0) }
-            saveToKeychain(data: keyData, service: keyChainService, account: keyChainAccount)
-            return key
+    /// - Parameter encryptedData: The encrypted `Data` blob to decrypt.
+    /// - Returns: The decrypted plaintext `Data` on success, or `nil` on failure (an error is logged).
+    func decrypt(_ encryptedData: Data) -> Data? {
+        if let privateKey = getPrivateKey() {
+            if SecKeyIsAlgorithmSupported(privateKey, .decrypt, keyAlgorithm) {
+                var error: Unmanaged<CFError>?
+                if let decrpytedData = SecKeyCreateDecryptedData(
+                    privateKey,
+                    keyAlgorithm,
+                    encryptedData as CFData,
+                    &error
+                ) {
+                    return (decrpytedData as Data)
+                } else {
+                    lgg.error("Decryption in pairing failed: \(error!.takeRetainedValue())")
+                }
+            }
         }
-    }
-    
-    /// Encrypts the given data using `ChaChaPoly` symmetric encryption.
-    ///
-    /// This method uses the symmetric key retrieved by ``getKey()`` to encrypt the provided `Data`.
-    /// The encryption process includes generating a nonce and authentication tag, which are combined
-    /// with the ciphertext into a single `Data` object.
-    ///
-    /// - Parameter data: The plaintext `Data` to be encrypted.
-    /// - Returns: An optional `Data` object containing the combined sealed box (ciphertext, nonce, and authentication tag),
-    ///            or `nil` if the encryption fails.
-    func encrypt(_ data: Data) -> Data? {
-        do {
-            let sealedData = try ChaChaPoly.seal(data, using: getKey())
-            return sealedData.combined
-        } catch {
-            lgg.error("Encryption of data failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
-    
-    /// Decrypts the given sealed data using `ChaChaPoly` symmetric decryption.
-    ///
-    /// This method uses the symmetric key retrieved by ``getKey()`` to decrypt a `ChaChaPoly.SealedBox`.
-    /// The input `sealedData` is expected to be a combined representation of ciphertext, nonce, and authentication tag
-    /// as produced by the ``encrypt(_:)`` method.
-    ///
-    /// - Parameter sealedData: The `Data` object containing the combined sealed box to be decrypted.
-    /// - Returns: An optional `Data` object containing the decrypted plaintext, or `nil` if the decryption fails
-    ///            (e.g., due to corrupted data or an incorrect key).
-    func decrypt(_ sealedData: Data) -> Data? {
-        do {
-            let sealedBox = try ChaChaPoly.SealedBox(combined: sealedData)
-            let data = try ChaChaPoly.open(sealedBox, using: getKey())
-            return data
-        } catch {
-            lgg.error("Decryption of data failed: \(error.localizedDescription)")
-            return nil
-        }
+        return nil
     }
 }
-
