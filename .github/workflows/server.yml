@@ -1,0 +1,25 @@
+name: server
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ./server
+        
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run tests
+      run: cargo test
