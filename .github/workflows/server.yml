@@ -13,14 +13,19 @@ env:
 
 jobs:
   test:
-
+    name: Build and Test
     runs-on: macos-latest
     defaults:
       run:
         working-directory: ./server
         
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Get rust version
+      run: rustc --version --verbose
+    - name: Get cargo version
+      run: cargo --version --verbose
     - name: Build
       run: cargo build
     - name: Run tests
