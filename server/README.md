@@ -231,6 +231,5 @@ This project uses the following libraries:
 - [rand](https://crates.io/crates/rand) - pairing code generation
 - [p12-keystore](https://crates.io/crates/p12-keystore) - handle PKCS#12 certificate
 - [zeroize](https://crates.io/crates/zeroize) - securely clear key from memory
-- [dirs](https://crates.io/crates/dirs) - home directory in integration test
 
 See `Cargo.toml` and `Cargo.lock` for a full list of dependencies.

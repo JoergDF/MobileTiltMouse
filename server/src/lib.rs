@@ -121,9 +121,7 @@ pub async fn connection_handler(mouse: &mut impl Mouse) -> Result<()> {
         }
     });
 
-    // mouse pointer in library enigo did not implement Send, therefore there was a compiler error,
-    // if there are MouseControl parts before and within await-loop, 
-    // hence channels are used to make things work
+    // get data from mpsc channel
     while let Some(data) = mpsc_rx.recv().await {
         mouse_ctrl.mouse_action(data, mouse);
     }

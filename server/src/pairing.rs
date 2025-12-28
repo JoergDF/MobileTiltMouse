@@ -16,9 +16,11 @@ use crate::Result;
 // number of digits of pairing code
 const CODE_SIZE: usize = 5;
 // filename for saving client IDs
-const FILENAME_CLIENTS: &str = "clients.bin";
+const FILENAME_CLIENT_IDS: &str = "clients.bin";
 // filename for saving server IDs
-const FILENAME_SERVER: &str = "server.bin";
+const FILENAME_SERVER_IDS: &str = "server.bin";
+// sub-folder in user's home directory
+const HOME_SUB_DIR: &str = "mobiletiltmouse";
 // number of pairing code rejections before giving up
 const REJECT_COUNT: i32 = 3; 
 // maximum number of latest client/server IDs, oldest IDs are deleted
@@ -26,6 +28,62 @@ const ID_HISTORY: usize = 128;
 // length of byte array of encrypted server ID + client ID
 const ENCRYPTED_ID_SIZE: usize = 72;
 
+
+enum IdSource {
+    Server,
+    Client,
+    #[allow(dead_code)]
+    Test,     // for unit tests
+    #[allow(dead_code)]
+    TestNone, // for unit tests
+}
+
+/// Return the path to the ID storage file for the given ID source.
+/// 
+/// If the home directory cannot be determined or creating the
+/// subdirectory fails, the function falls back to returning the plain filename
+/// so callers can continue using the current working directory.
+///
+/// # Arguments
+///
+/// * id_src - enum IdSource Server/Client
+/// 
+/// # Returns
+///
+/// String:
+/// - On success: the full path "<home>/<HOME_SUB_DIR>/<filename>" (e.g. 
+///   "/home/alice/mobiletiltmouse/clients.bin").
+/// - On failure to resolve the home directory or create the subdirectory: 
+///   the bare filename (without path)
+
+fn get_filename(id_src: IdSource) -> String {
+    let filename = match id_src {
+        IdSource::Client   => FILENAME_CLIENT_IDS,
+        IdSource::Server   => FILENAME_SERVER_IDS,
+        IdSource::Test     => "test.bin",
+        IdSource::TestNone => "test.bin",
+    };
+
+    let user_home_dir = match id_src {
+        IdSource::Client   => std::env::home_dir(),
+        IdSource::Server   => std::env::home_dir(),
+        IdSource::Test     => Some(std::env::current_dir().unwrap()),
+        IdSource::TestNone => None,
+    };
+
+    if let Some(home_dir) = user_home_dir {
+        let home_sub_dir = home_dir.join(HOME_SUB_DIR);
+        if !home_sub_dir.is_dir() {
+            if fs::create_dir(&home_sub_dir).is_err() {
+                return filename.to_string();
+            }
+        }
+        let path_filename = home_sub_dir.join(filename);
+        return path_filename.to_string_lossy().to_string();
+    } else {
+        return filename.to_string();
+    }
+}
 
 /// Manages the entire pairing process between the server and a client.
 ///
@@ -118,7 +176,7 @@ pub async fn pairing(recv_stream: &mut RecvStream, send_stream: &mut SendStream)
             // pairing code was correct
             // if client was new (maybe only server id was new), save the client UUID to file
             if !known_client {
-                save_id(&client_id, &key, FILENAME_CLIENTS)?;
+                save_id(&client_id, &key, &get_filename(IdSource::Client))?;
             }
             key.zeroize();
             println!("Pairing successful.");
@@ -165,7 +223,7 @@ async fn handle_server_id(recv_stream: &mut RecvStream, send_stream: &mut SendSt
     
     let mut key = Zeroizing::new([0u8; 32]);
     key.copy_from_slice(&req[1..33]);
-    let server_id = get_server_id(key.as_ref(), FILENAME_SERVER)?;
+    let server_id = get_server_id(key.as_ref(), &get_filename(IdSource::Server))?;
     
     // send server ID
     let mut data = [0u8; 33];
@@ -219,7 +277,7 @@ async fn handle_client_id(recv_stream: &mut RecvStream, key: &[u8]) -> Result<(b
 
     let client_id: [u8; 32] = data[1..33].try_into()?;
 
-    let known_client = is_client_id_known(&client_id, key, FILENAME_CLIENTS)?;
+    let known_client = is_client_id_known(&client_id, key, &get_filename(IdSource::Client))?;
     
     return Ok((known_client, client_id));
 }
@@ -543,6 +601,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_get_filename() {
+        // remove HOME_SUB_DIR, if it exists
+        let _ = fs::remove_dir(HOME_SUB_DIR);
+        let _ = std::fs::remove_file(HOME_SUB_DIR);
+
+        // simulate a none-existing home directory 
+        let filename = get_filename(IdSource::TestNone);
+        println!("{}", filename);
+        assert!(!std::env::current_dir().unwrap().join(HOME_SUB_DIR).is_dir());
+        assert_eq!(filename, "test.bin");
+
+        // create file with the same name as the sub directory, so sub directory cannot be created
+        fs::File::create(HOME_SUB_DIR).unwrap();
+        let filename = get_filename(IdSource::Test);
+        assert_eq!(filename, "test.bin");
+
+        // remove file for following test
+        std::fs::remove_file(HOME_SUB_DIR).unwrap();
+
+        // check sub directory is created and full path with filename is returned
+        assert!(!std::env::current_dir().unwrap().join(HOME_SUB_DIR).is_dir());
+        let filename = get_filename(IdSource::Test);
+        assert!(std::env::current_dir().unwrap().join(HOME_SUB_DIR).is_dir());
+        assert_eq!(filename, std::env::current_dir().unwrap().join(HOME_SUB_DIR).join("test.bin").to_string_lossy());
+
+        // another call should use previously created sub directory and give same result
+        let filename = get_filename(IdSource::Test);
+        assert!(std::env::current_dir().unwrap().join(HOME_SUB_DIR).is_dir());
+        assert_eq!(filename, std::env::current_dir().unwrap().join(HOME_SUB_DIR).join("test.bin").to_string_lossy());
+
+        // cleanup
+        let _ = fs::remove_dir(HOME_SUB_DIR);
+    }
+
+
+    #[test]
     fn test_create_server_id() {
         let id  = create_server_id();
         assert_eq!(id.len(), 32);
@@ -728,6 +822,7 @@ mod tests {
     }
     
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn test_save_id_no_write_permission_in_dir() { 
         let dir = "test_clients_no_write_dir";
         let filename = format!("{}/test_clients.bin", dir);
@@ -735,6 +830,7 @@ mod tests {
         fs::create_dir(dir).unwrap();
         let mut permissions = fs::metadata(dir).unwrap().permissions();
 
+        // Windows: permissions of directories cannot be changed in this way
         permissions.set_readonly(true);
         fs::set_permissions(dir, permissions.clone()).unwrap();
 
