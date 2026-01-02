@@ -1,15 +1,16 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 use std::thread;
 use std::sync::mpsc;
 use enigo::{Button, Direction, Mouse, Axis, Coordinate};
 use std::process::Command;
-use dirs;
 
 use mobile_tilt_mouse::connection_handler;
 
 // Test command for running the following integration tests (must run sequentially, hence --test-threads=1):
 // cargo test --test integration_tests -- --ignored --test-threads=1
 
+const IOS_SIMULATOR_DEVICE: &str = "iPhone 17";
+const ANDROID_EMULATOR_DEVICE: &str = "Pixel_9_API_36.0";
 
 struct MockMouse {
     location: (i32, i32),
@@ -69,7 +70,7 @@ fn receive_button_clicks() {
     };
 
     thread::spawn(move || {
-        connection_handler(&mut mouse).unwrap();
+        connection_handler(&mut mouse, true).unwrap();
     });
 
     // press/release left/middle/right button
@@ -83,12 +84,15 @@ fn receive_button_clicks() {
 
 #[test]
 #[ignore]
-// Adapt paths to your Xcode project
+#[cfg(target_os = "macos")]
+// Start iOS simulator and run test case there which clicks buttons. Server should receive the button click commands.
 // Test command:
 // cargo test --test integration_tests -- test_ios_receive_button_clicks --ignored
 fn test_ios_receive_button_clicks() {
+    // iOS test part is only run if the following environment variable is set: TEST_RUNNER_Integration_Testing="YES"
     let mut simulator_process = Command::new("xcodebuild")
-    .args(["test", "-scheme", "MobileTiltMouse", "-destination", "platform=iOS Simulator,name=iPhone 16", "-only-testing", "MobileTiltMouseUITests/IntegrationTests/testSendButtonClicks"])
+    .env("TEST_RUNNER_Integration_Testing", "YES")
+    .args(["test", "-scheme", "MobileTiltMouse", "-destination", format!("platform=iOS Simulator,name={}", IOS_SIMULATOR_DEVICE).as_str(), "-only-testing", "MobileTiltMouseUITests/IntegrationTests/testSendButtonClicks"])
     .current_dir("../AppiOS")
     .spawn()
     .expect("Failed to execute integration test counterpart in Xcode.");
@@ -100,17 +104,28 @@ fn test_ios_receive_button_clicks() {
 
 #[test]
 #[ignore]
-// Adapt path to your Android emulator
+// Start Android emulator and run test case there which clicks buttons. Server should receive the button click commands.
 // Test command:
 // cargo test --test integration_tests -- test_android_receive_button_clicks --ignored
-
 fn test_android_receive_button_clicks() {
-    // get home directory of user
-    let homedir = dirs::home_dir().expect("Failed to get home directory.");
-    
+    let emulator_path =
+    if cfg!(target_os = "macos") {
+        // get home directory of user and add remaining emulator path
+        let homedir = std::env::home_dir().expect("Failed to get home directory.");
+        homedir.join("Library/Android/sdk/emulator/emulator")
+    } else if cfg!(target_os = "linux") {
+        let homedir = std::env::home_dir().expect("Failed to get home directory.");
+        homedir.join("Android/sdk/emulator/emulator")
+    } else if cfg!(target_os = "windows") {
+        let appdir = std::env::var("LOCALAPPDATA").expect("Failed to get environment variable LOCALAPPDATA.");
+        PathBuf::from(appdir).join(r"Android\Sdk\emulator\emulator.exe")
+    } else {
+        panic!("OS not supported")
+    };
+
     // start the Android emulator
-    let mut emulator_process = Command::new(homedir.join("Library/Android/sdk/emulator/emulator"))
-    .args(["-avd", "Medium_Phone_API_35"])
+    let mut emulator_process = Command::new(emulator_path)
+    .args(["-avd", ANDROID_EMULATOR_DEVICE])
     .spawn()
     .expect("Failed to execute Android emulator.");
 

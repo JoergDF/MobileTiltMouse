@@ -95,7 +95,7 @@ fn get_filename(id_src: IdSource) -> String {
 ///    - Server receives key for its encrypted ID and sends its ID
 ///    - Client indicates if it knows the server
 ///    - Server receives client's ID and checks if client is known
-/// 2. If both parties know each other:
+/// 2. If both parties know each other or if in test mode:
 ///    - Send confirmation to client (0x51)
 ///    - Return successfully
 /// 3. If either party is unknown:
@@ -111,6 +111,7 @@ fn get_filename(id_src: IdSource) -> String {
 ///
 /// * `recv_stream` - A mutable reference to the QUIC receiving stream for communication from the client.
 /// * `send_stream` - A mutable reference to the QUIC sending stream for communication to the client.
+/// * `test` - indicate whether in test mode or not
 ///
 /// # Errors
 ///
@@ -118,13 +119,13 @@ fn get_filename(id_src: IdSource) -> String {
 /// * Network communication fails (reading/writing streams)
 /// * Invalid/unexpected message headers are received
 /// * Reading/writing IDs from/to storage fails
-pub async fn pairing(recv_stream: &mut RecvStream, send_stream: &mut SendStream) -> Result<()> {
+pub async fn pairing(recv_stream: &mut RecvStream, send_stream: &mut SendStream, test: bool) -> Result<()> {
     // send server id, receive client id, handle their storage and check if they are already known
     let (known_server, mut key) = handle_server_id(recv_stream, send_stream).await?;
     let (known_client, client_id) = handle_client_id(recv_stream, &key).await?;
 
     // check results and send them to client
-    if known_client && known_server {
+    if (known_client && known_server) || test {
         // client and server know each other, pairing code is not needed
         send_stream.write_all(&[0x51u8]).await?;
         println!("Server and client already know each other.");
@@ -738,7 +739,7 @@ mod tests {
     }
 
 
-     #[test]
+    #[test]
     fn test_save_and_load_id() {
         let filename = "test_id.bin";
         let id_org: [u8; 32] = rand::random();

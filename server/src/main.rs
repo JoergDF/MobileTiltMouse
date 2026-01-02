@@ -7,7 +7,7 @@ fn main() -> Result<()> {
 
     let mut mouse = Enigo::new(&Settings::default())?;
 
-    connection_handler(&mut mouse)?;
+    connection_handler(&mut mouse, false)?;
 
     Ok(())
 }

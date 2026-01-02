@@ -31,9 +31,6 @@
     },
     {
       "parallelizable" : true,
-      "skippedTests" : [
-        "IntegrationTests\/testSendButtonClicks()"
-      ],
       "target" : {
         "containerPath" : "container:MobileTiltMouse.xcodeproj",
         "identifier" : "DE415FF82DEA18B9006542F4",

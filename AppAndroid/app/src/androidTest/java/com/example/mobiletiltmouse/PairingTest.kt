@@ -365,6 +365,7 @@ class PairingTest {
         assertFalse(PairingStatus.showCodeEntry)
         assertEquals(mockConn, pairing.mouseActions?.connection)
         assertNull(pairing.connection)
+        assertTrue(NetworkState.isConnected)
     }
 
     @Test

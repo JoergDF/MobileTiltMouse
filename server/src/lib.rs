@@ -23,6 +23,8 @@ pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync + 'stati
 const ALPN_QUIC_HTTP: &[&[u8]] = &[b"mobiletiltmouseproto"];
 // embed the p12-file (containing certificate and private key) as byte array
 const SERVER_CERT_P12: &[u8] = include_bytes!("cert.p12");
+// password of server's PKCS#12/p12 certificate
+const SERVER_CERT_PASSWORD: &str = "mtm_server";
 // SHA256-hash of client certificate's DER-formatted file
 const CLIENT_CERT_HASH: [u8; 32] = hex!("78f63567c0bb005c25cea87a4483eb7f97a31ed65882f3907a4539bde9dfa189");
 
@@ -55,14 +57,15 @@ const CLIENT_CERT_HASH: [u8; 32] = hex!("78f63567c0bb005c25cea87a4483eb7f97a31ed
 ///
 /// # Arguments
 /// * `mouse` - A mutable reference to an object implementing the `enigo::Mouse` trait,
-///   which will be used to execute mouse control actions.
+///    which will be used to execute mouse control actions.
+/// * `test` - indicate whether in test mode or not
 ///
 /// # Returns
 /// Returns `Ok(())` upon successful initialization. The server itself runs indefinitely.
 /// An `Err` is returned if there is a failure during the initial setup of the server
 /// or the mDNS service.
 #[tokio::main]
-pub async fn connection_handler(mouse: &mut impl Mouse) -> Result<()> {
+pub async fn connection_handler(mouse: &mut impl Mouse, test: bool) -> Result<()> {
     //initialize_logger("trace");
 
     // mouse handler
@@ -100,7 +103,7 @@ pub async fn connection_handler(mouse: &mut impl Mouse) -> Result<()> {
                     while let Ok((mut send_stream, mut recv_stream)) = connection.accept_bi().await {
                         println!("Incoming stream accepted");
 
-                        if let Err(e) = pairing::pairing(&mut recv_stream, &mut send_stream).await {
+                        if let Err(e) = pairing::pairing(&mut recv_stream, &mut send_stream, test).await {
                             eprintln!("Pairing failed: {:?}", e); 
                             break;
                         }
@@ -222,7 +225,7 @@ impl ClientCertVerifier for ClientCert {
 /// - The certificate or key cannot be parsed.
 /// - The QUIC or TLS configuration fails.
 fn configure_server() -> Result<ServerConfig> {
-    let keystore = KeyStore::from_pkcs12(SERVER_CERT_P12, "mtm_server")?; 
+    let keystore = KeyStore::from_pkcs12(SERVER_CERT_P12, SERVER_CERT_PASSWORD)?; 
     let key_chain = keystore.private_key_chain().unwrap().1;
     let cert_der = CertificateDer::from(key_chain.chain()[0].as_der()).into_owned();
     let priv_key_der = PrivateKeyDer::try_from(key_chain.key())?.clone_key();

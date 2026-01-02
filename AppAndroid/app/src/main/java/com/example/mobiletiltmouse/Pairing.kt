@@ -300,7 +300,8 @@ class Pairing(
      *
      * It passes the active connection to the [MouseActions] handler to commence mouse
      * event transmission. The UI for code entry is hidden, with an optional delay to
-     * improve user experience by showing the final input.
+     * improve user experience by showing the final input. It updates the global `NetworkState`
+     * to reflect the active connection.
      *
      * @param closeViewWithDelay If true, delays hiding the code entry UI to ensure
      *                           the user sees the feedback.
@@ -312,6 +313,7 @@ class Pairing(
             delay(500)
         }
         setPairingStatus(showCodeEntry = false, codeRejected = null)
+        NetworkState.isConnected = true
         Log.d(TAG, "Exited pairing.")
     }
 

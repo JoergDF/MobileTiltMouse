@@ -133,8 +133,7 @@ open class Connection(private val context: Context?, val remoteAccess: RemoteAcc
      * 4.  Manually verifies the server's certificate against a hardcoded hash to prevent
      *     man-in-the-middle attacks.
      * 5.  Creates a bidirectional QUIC stream for sending and receiving data.
-     * 6.  Updates the global `NetworkState` to reflect the active connection.
-     * 7.  Initiates the pairing process via the `pairing` handler.
+     * 6.  Initiates the pairing process via the `pairing` handler.
      *
      * If a connection is already active, the function returns immediately. If errors occur
      * during connection (e.g., certificate loading, connection failure), it may trigger a
@@ -202,8 +201,6 @@ open class Connection(private val context: Context?, val remoteAccess: RemoteAcc
 
         quicStream = connection?.createStream(true)
         Log.d(TAG, "Stream created")
-
-        NetworkState.isConnected = true
 
         pairing?.startPairing(this)
     }
