@@ -1,86 +1,47 @@
 use std::{path::PathBuf, time::Duration};
 use std::thread;
 use std::sync::mpsc;
-use enigo::{Button, Direction, Mouse, Axis, Coordinate};
+use rdev::{listen, EventType, Button};
 use std::process::Command;
 
 use mobile_tilt_mouse::connection_handler;
 
+//
+// Do not use mouse or keyboard during these tests, as real mouse/keyboard events are evaluated.
+//
+//
 // Test command for running the following integration tests (must run sequentially, hence --test-threads=1):
 // cargo test --test integration_tests -- --ignored --test-threads=1
 
 const IOS_SIMULATOR_DEVICE: &str = "iPhone 17";
 const ANDROID_EMULATOR_DEVICE: &str = "Pixel_9_API_36.0";
 
-struct MockMouse {
-    location: (i32, i32),
-    display_size: (i32, i32),
-    tx: mpsc::Sender<i32>,
-}
-
-impl Mouse for MockMouse {
-    fn move_mouse(&mut self, _x: i32, _y: i32, _: Coordinate) -> enigo::InputResult<()> {
-        Ok(())
-    }
-
-    fn scroll(&mut self, _length: i32, _axis: Axis) -> enigo::InputResult<()> {
-        Ok(())
-    }
-
-    fn button(&mut self, button: Button, direction: Direction) -> enigo::InputResult<()> {
-        if button == Button::Left {
-            if direction == Direction::Press {
-                self.tx.send(0).unwrap();
-            } else if direction == Direction::Release {
-                self.tx.send(1).unwrap();                
-            }
-        } else if button == Button::Middle {
-            if direction == Direction::Press {
-                self.tx.send(2).unwrap();
-            } else if direction == Direction::Release {
-                self.tx.send(3).unwrap();                
-            }
-        } else if button == Button::Right {
-            if direction == Direction::Press {
-                self.tx.send(4).unwrap();
-            } else if direction == Direction::Release {
-                self.tx.send(5).unwrap();                
-            }
-        }
-        Ok(())
-    }
-
-    fn location(&self) -> enigo::InputResult<(i32, i32)> {
-        Ok(self.location)
-    }
-
-    fn main_display(&self) -> enigo::InputResult<(i32, i32)> {
-        Ok(self.display_size)
-    }
-}
-
 
 fn receive_button_clicks() {
-    let (tx, rx) = mpsc::channel();
-    
-    let mut mouse = MockMouse {
-        location: (0, 0),
-        display_size: (100, 100),
-        tx,
-    };
+    // move mouse cursor to top left corner of display to minimize risk of causing harm by mouse clicks
+    rdev::simulate(&EventType::MouseMove { x: 0.0, y: 0.0 }).unwrap();
 
+    // start mouse server
     thread::spawn(move || {
-        connection_handler(&mut mouse, true).unwrap();
+        connection_handler(true).unwrap();
     });
 
-    // press/release left/middle/right button
-    assert_eq!(rx.recv_timeout(Duration::from_millis(180000)), Ok(0));
-    assert_eq!(rx.recv_timeout(Duration::from_millis(1000)), Ok(1));
-    assert_eq!(rx.recv_timeout(Duration::from_millis(1000)), Ok(2));
-    assert_eq!(rx.recv_timeout(Duration::from_millis(1000)), Ok(3));
-    assert_eq!(rx.recv_timeout(Duration::from_millis(1000)), Ok(4));
-    assert_eq!(rx.recv_timeout(Duration::from_millis(1000)), Ok(5));
+    let (tx, rx) = mpsc::channel();
+
+    // listen to mouse/keyboard events
+    thread::spawn(move || {
+        listen(move |event| {
+            tx.send(event.event_type).unwrap();
+        }).unwrap();
+      
+    });
+
+    assert_eq!(rx.recv_timeout(Duration::from_millis(180000)), Ok(EventType::ButtonPress(Button::Left)));
+    assert_eq!(rx.recv_timeout(Duration::from_millis(200)),    Ok(EventType::ButtonRelease(Button::Left)));
+    assert_eq!(rx.recv_timeout(Duration::from_millis(1000)),   Ok(EventType::ButtonPress(Button::Right)));
+    assert_eq!(rx.recv_timeout(Duration::from_millis(200)),    Ok(EventType::ButtonRelease(Button::Right)));
 }
+
 
 #[test]
 #[ignore]

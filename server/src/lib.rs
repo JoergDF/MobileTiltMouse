@@ -13,7 +13,6 @@ use std::net::Ipv6Addr;
 use std::sync::Arc;
 use zeroconf::prelude::*;
 use zeroconf::{MdnsService, ServiceType};
-use enigo::Mouse;
 
 mod mouse_control;
 mod pairing;
@@ -48,28 +47,22 @@ const CLIENT_CERT_HASH: [u8; 32] = hex!("78f63567c0bb005c25cea87a4483eb7f97a31ed
 ///     pairing handshake using a bidirectional stream. If pairing is successful, it
 ///     transitions to uni-directional to receiving 3-byte mouse control packets.
 ///
-/// 5.  **Decoupled Mouse Control**: Received mouse data is sent through a Tokio MPSC
-///     (multi-producer, single-consumer) channel to a central processing loop.
-///
-/// 6.  **Mouse Action Execution**: The main function loop waits for data on the MPSC
-///     channel and uses the provided `mouse` implementation (from the `enigo` crate)
-///     to execute the corresponding mouse actions (e.g., move, click).
+/// 5.  **Mouse Control**: Received mouse data is sent to the provided `mouse` 
+///     implementation (from the `enigo` crate) to execute the corresponding mouse actions 
+///     (e.g., move, click).
 ///
 /// # Arguments
 /// * `mouse` - A mutable reference to an object implementing the `enigo::Mouse` trait,
 ///    which will be used to execute mouse control actions.
-/// * `test` - indicate whether in test mode or not
+/// * `test` - indicate whether in integration test mode or not
 ///
 /// # Returns
 /// Returns `Ok(())` upon successful initialization. The server itself runs indefinitely.
 /// An `Err` is returned if there is a failure during the initial setup of the server
 /// or the mDNS service.
 #[tokio::main]
-pub async fn connection_handler(mouse: &mut impl Mouse, test: bool) -> Result<()> {
+pub async fn connection_handler(/* mouse: &mut impl Mouse,  */test: bool) -> Result<()> {
     //initialize_logger("trace");
-
-    // mouse handler
-    let mut mouse_ctrl = mouse_control::MouseControl::new();
 
     // set up quic server
     let server_addr = SocketAddr::new(std::net::IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0); 
@@ -83,50 +76,37 @@ pub async fn connection_handler(mouse: &mut impl Mouse, test: bool) -> Result<()
     let mut service = MdnsService::new(service_type, endpoint.local_addr()?.port()); 
     service.register()?;
 
-    // mpsc channel for communication between the connection handler and the mouse control
-    let (mpsc_tx, mut mpsc_rx) = tokio::sync::mpsc::channel(1); 
+    while let Some(conn) = endpoint.accept().await { 
+        println!("Endpoint accepted");
 
-    // the while loop needs to run in its own thread, so a failed connection establishment can be repeated, 
-    // while the rx-channel-loop can run outside of this loop, not blocking it
-    tokio::spawn(async move {
-        while let Some(conn) = endpoint.accept().await { 
-            let mpsc_tx = mpsc_tx.clone();
-            println!("Endpoint accepted");
+        tokio::spawn(async move {
+            // sometimes connection establishment (of iOS client) cannot be completed and waits here till timeout 
+            // (leads to error, which is ignored), but a second attempt is done which then works (in another thread)
+            let connection = conn.await;
+            if let Ok(connection) = connection {
+                println!("Connection accepted from {}", connection.remote_address());
+                
+                while let Ok((mut send_stream, mut recv_stream)) = connection.accept_bi().await {
+                    println!("Incoming stream accepted");
 
-            tokio::spawn(async move {
-                // sometimes connection establishment (of iOS client) cannot be completed and waits here till timeout 
-                // (leads to error, which is ignored), but a second attempt is done which then works (in another thread)
-                let connection = conn.await;
-                if let Ok(connection) = connection {
-                    println!("Connection accepted from {}", connection.remote_address());
-                    
-                    while let Ok((mut send_stream, mut recv_stream)) = connection.accept_bi().await {
-                        println!("Incoming stream accepted");
-
-                        if let Err(e) = pairing::pairing(&mut recv_stream, &mut send_stream, test).await {
-                            eprintln!("Pairing failed: {:?}", e); 
-                            break;
-                        }
-
-                        // send-direction not needed anymore when pairing is done
-                        send_stream.finish().unwrap();
-
-                        let mut data= [0u8; 3];
-                        while let Ok(()) = recv_stream.read_exact(&mut data).await {
-                            // forward received data to mpsc channel
-                            mpsc_tx.send(data).await.unwrap();                  
-                        }
+                    if let Err(e) = pairing::pairing(&mut recv_stream, &mut send_stream, test).await {
+                        eprintln!("Pairing failed: {:?}", e); 
+                        break;
                     }
-                } else {
-                    eprintln!("Failed to establish connection: {:?}", connection.err());
-                }
-            });
-        }
-    });
 
-    // get data from mpsc channel
-    while let Some(data) = mpsc_rx.recv().await {
-        mouse_ctrl.mouse_action(data, mouse);
+                    // send-direction not needed anymore when pairing is done
+                    send_stream.finish().unwrap();
+
+                    let mut mouse_ctrl = mouse_control::MouseControl::default();
+                    let mut data= [0u8; 3];
+                    while let Ok(()) = recv_stream.read_exact(&mut data).await {
+                        mouse_ctrl.mouse_action(data);             
+                    }
+                }
+            } else {
+                eprintln!("Failed to establish connection: {:?}", connection.err());
+            }
+        });
     }
 
     Ok(())

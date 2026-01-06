@@ -143,7 +143,6 @@ struct ContentView: View {
                    actions: {} ) {
                 Text(errAlert.message)
             }
-            //.task {
             .onAppear {
                 if UITesting {
                     // For UI testing reset all variables which are read from UserDefaults

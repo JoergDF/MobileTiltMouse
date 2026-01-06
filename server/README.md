@@ -185,19 +185,21 @@ The server's certificate is sent to the client on connection setup. And the serv
 
 ## Tests
 
-- **Unit tests:**  
+- **Unit tests**  
   To run unit tests:
   ```
   cargo test
   ```
 
-- **Integration tests:**  
+- **Integration tests**  
   Integration tests are available for both iOS and Android. These tests launch an iOS simulator or Android emulator on the same computer, where a test case of the apps (simulating a button press) interacts with the server. The server then verifies if the correct signal is received.
 
-  **Prerequisite:**  
+  ***Prerequisite:***  
   The appropriate development environment (Xcode for iOS, Android Studio for Android) must be installed on the test machine, which should run MacOS (not tested with Linux or Windows).
 
-  Integration tests are not run by default with other tests and must be explicitly invoked.
+  ***Run:***  
+  Integration tests are not run by default with other tests and must be explicitly invoked.  
+  *Do not use mouse or keyboard during these tests,* as real mouse/keyboard events are evaluated.
 
   - To run both iOS and Android integration tests:
     ```
@@ -224,12 +226,13 @@ This project uses the following libraries:
 - [rustls](https://crates.io/crates/rustls) - TLS configuration
 - [tokio](https://crates.io/crates/tokio) - connection handling
 - [zeroconf](https://crates.io/crates/zeroconf) - Bonjour/mDNS service
-- [hex-literal](https://https://crates.io/crates/hex-literal) - hex conversion in certificate check 
+- [hex-literal](https://crates.io/crates/hex-literal) - hex conversion in certificate check 
 - [sha2](https://crates.io/crates/sha2) - client certificate check with RustCrypto's hashes
 - [aes-gcm-siv](https://crates.io/crates/aes-gcm-siv) - encrypted storage of server and client IDs
 - [hkdf](https://crates.io/crates/hkdf) - HMAC-based Key Derivation Function
 - [rand](https://crates.io/crates/rand) - pairing code generation
 - [p12-keystore](https://crates.io/crates/p12-keystore) - handle PKCS#12 certificate
 - [zeroize](https://crates.io/crates/zeroize) - securely clear key from memory
+- [rdev](https://crates.io/crates/rdev) - listen to mouse events in integration tests
 
 See `Cargo.toml` and `Cargo.lock` for a full list of dependencies.

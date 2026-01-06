@@ -1,4 +1,4 @@
-use enigo::{Button, Direction, Mouse, Axis, Coordinate};
+use enigo::{Axis, Button, Coordinate, Direction, Enigo, Mouse, Settings};
 
 
 /// Tracks the current state of mouse buttons.
@@ -23,17 +23,21 @@ struct ButtonPressed {
     right: bool,
 }
 
-pub struct MouseControl {
+pub struct MouseControl<T> {
+    pub mouse: T,
     button_pressed: ButtonPressed,
 }
 
-impl MouseControl {
-    pub fn new() -> Self {
-        MouseControl {
+impl Default for MouseControl<Enigo> {
+    fn default() -> Self { 
+        Self {
+            mouse: Enigo::new(&Settings::default()).expect("Could not initialize mouse library"),
             button_pressed: ButtonPressed::default(),
         }
     }
+}
 
+impl<T: Mouse> MouseControl<T> {
     /// Calculates the adjusted movement to keep the new location within the valid range [0, max].
     ///
     /// # Arguments
@@ -67,7 +71,6 @@ impl MouseControl {
     ///   - Byte 1: Header (4 bits) | Data (4 bits)
     ///   - Byte 2: Data
     ///   - Byte 3: Data
-    /// * `mouse` - Implementation of the Mouse trait for executing mouse actions
     /// 
     /// # Protocol
     /// 
@@ -82,7 +85,7 @@ impl MouseControl {
     ///   - `0x2/0x3`: Middle button press/release
     ///   - `0x4/0x5`: Right button press/release
     /// 
-    pub fn mouse_action(&mut self, dat: [u8; 3], mouse: &mut impl Mouse) {
+    pub fn mouse_action(&mut self, dat: [u8; 3]) {
         let data = ((dat[0] as u32) << 16) | ((dat[1] as u32) << 8) | (dat[2] as u32);
         //println!("{:06x}", data);
 
@@ -93,11 +96,11 @@ impl MouseControl {
                 let payload_x = (((data & 0x03FF) as i32) << 22) >> 22;
                 let payload_y = (((data & (0x03FF << 10)) as i32) << 12) >> 22;
 
-                let loc = mouse.location().unwrap();
-                let display_size = mouse.main_display().unwrap();
+                let loc = self.mouse.location().unwrap();
+                let display_size = self.mouse.main_display().unwrap();
                 let x = self.adjust_move(payload_x, loc.0, display_size.0);
                 let y = self.adjust_move(payload_y, loc.1, display_size.1);
-                mouse.move_mouse(x, y, Coordinate::Rel).expect("Unable to move mouse");
+                self.mouse.move_mouse(x, y, Coordinate::Rel).expect("Unable to move mouse");
             },
             0x1 => { 
                 // scroll page
@@ -105,46 +108,46 @@ impl MouseControl {
                 let payload_y = (((data & (0x03FF << 10)) as i32) << 12) >> 22;
 
                 // horizontal scroll
-                mouse.scroll(payload_x, Axis::Horizontal).expect("Unable to scroll horizontally");
+                self.mouse.scroll(payload_x, Axis::Horizontal).expect("Unable to scroll horizontally");
                 // vertical scroll
-                mouse.scroll(payload_y, Axis::Vertical).expect("Unable to scroll vertically");
+                self.mouse.scroll(payload_y, Axis::Vertical).expect("Unable to scroll vertically");
             },
             0x2 => {
                 let payload = data & 0x0FFFFF;
                 match payload {
                     0x0  => {
                         if self.button_pressed.left == false {
-                            mouse.button(Button::Left, Direction::Press).expect("Unable to press left mouse button");
+                            self.mouse.button(Button::Left, Direction::Press).expect("Unable to press left mouse button");
                             self.button_pressed.left = true;
                         }
                     }, 
                     0x1 => {
                         if self.button_pressed.left == true {
-                            mouse.button(Button::Left, Direction::Release).expect("Unable to release left mouse button");
+                            self.mouse.button(Button::Left, Direction::Release).expect("Unable to release left mouse button");
                             self.button_pressed.left = false;
                         }
                     },
                     0x2 => {
                         if self.button_pressed.middle == false {
-                            mouse.button(Button::Middle, Direction::Press).expect("Unable to press middle mouse button");
+                            self.mouse.button(Button::Middle, Direction::Press).expect("Unable to press middle mouse button");
                             self.button_pressed.middle = true;
                         }
                     },
                     0x3 => {
                         if self.button_pressed.middle == true {
-                            mouse.button(Button::Middle, Direction::Release).expect("Unable to release middle mouse button");
+                            self.mouse.button(Button::Middle, Direction::Release).expect("Unable to release middle mouse button");
                             self.button_pressed.middle = false;
                         }
                     },
                     0x4 => {
                         if self.button_pressed.right == false {
-                            mouse.button(Button::Right, Direction::Press).expect("Unable to press right mouse button");
+                            self.mouse.button(Button::Right, Direction::Press).expect("Unable to press right mouse button");
                             self.button_pressed.right = true;
                         }
                     },
                     0x5 => {
                         if self.button_pressed.right == true {
-                            mouse.button(Button::Right, Direction::Release).expect("Unable to release right mouse button");
+                            self.mouse.button(Button::Right, Direction::Release).expect("Unable to release right mouse button");
                             self.button_pressed.right = false;
                         }
                     },
@@ -165,7 +168,6 @@ impl MouseControl {
 
 
 // Unit tests
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,9 +215,25 @@ mod tests {
         }
     }
 
+    fn init_test() -> MouseControl<MockMouse> {
+        let mock_mouse = MockMouse {
+            location: (10, 10),
+            display_size: (100, 100),
+            button_pressed: ButtonPressed::default(),
+        };
+
+        let mc = MouseControl {
+            mouse: mock_mouse,
+            button_pressed: ButtonPressed::default(),
+        };
+
+        return mc;
+    }
+
+
     #[test]
     fn adjust_move_test() {
-        let mc = MouseControl::new();
+        let mc = init_test();
         
         assert_eq!(mc.adjust_move(3, 10, 100), 3);
         assert_eq!(mc.adjust_move(0, 10, 100), 0);
@@ -234,159 +252,145 @@ mod tests {
 
     #[test]
     fn mouse_move_test() {
-        let mut mouse = MockMouse {
-            location: (10, 10),
-            display_size: (100, 100),
-            button_pressed: ButtonPressed::default(),
-        };
-        let mut mc = MouseControl::new();
+        let mut mc = init_test();
 
         // x += 0, y += 0
-        mc.mouse_action([0x00, 0x00, 0x00], &mut mouse);
-        assert_eq!(mouse.location, (10, 10));
+        mc.mouse_action([0x00, 0x00, 0x00]);
+        assert_eq!(mc.mouse.location, (10, 10));
 
         // x += 1
-        mc.mouse_action([0x00, 0x00, 0x01], &mut mouse);
-        assert_eq!(mouse.location, (11, 10));
+        mc.mouse_action([0x00, 0x00, 0x01]);
+        assert_eq!(mc.mouse.location, (11, 10));
 
         // y += 1
-        mc.mouse_action([0x00, 0x04, 0x00], &mut mouse);
-        assert_eq!(mouse.location, (11, 11));
+        mc.mouse_action([0x00, 0x04, 0x00]);
+        assert_eq!(mc.mouse.location, (11, 11));
 
         // x += 1, y += 1
-        mc.mouse_action([0x00, 0x04, 0x01], &mut mouse);
-        assert_eq!(mouse.location, (12, 12));
+        mc.mouse_action([0x00, 0x04, 0x01]);
+        assert_eq!(mc.mouse.location, (12, 12));
         
         let d: i32 = -1;
         // x -= 1
-        mc.mouse_action([0x00, ((d >> 8) & 0x03) as u8, (d & 0xFF) as u8], &mut mouse);
-        assert_eq!(mouse.location, (11, 12));
+        mc.mouse_action([0x00, ((d >> 8) & 0x03) as u8, (d & 0xFF) as u8]);
+        assert_eq!(mc.mouse.location, (11, 12));
         
         // y -= 1
-        mc.mouse_action([((d >> 6) & 0x0F) as u8, ((d << 2) & 0xFC) as u8, 0x00], &mut mouse);
-        assert_eq!(mouse.location, (11, 11));
+        mc.mouse_action([((d >> 6) & 0x0F) as u8, ((d << 2) & 0xFC) as u8, 0x00]);
+        assert_eq!(mc.mouse.location, (11, 11));
 
         // x -= 1, y -= 1
-        mc.mouse_action([((d >> 6) & 0x0F) as u8, (((d << 2) & 0xFC) | ((d >> 8) & 0x03)) as u8, (d & 0xFF) as u8], &mut mouse);
-        assert_eq!(mouse.location, (10, 10));
+        mc.mouse_action([((d >> 6) & 0x0F) as u8, (((d << 2) & 0xFC) | ((d >> 8) & 0x03)) as u8, (d & 0xFF) as u8]);
+        assert_eq!(mc.mouse.location, (10, 10));
     }
 
 
     #[test]
     fn mouse_scroll_test() {
-        let mut mouse = MockMouse {
-            location: (10, 10),
-            display_size: (100, 100),
-            button_pressed: ButtonPressed::default(),
-        };
-        let mut mc = MouseControl::new();
+        let mut mc = init_test();
 
         // x += 0, y += 0
-        mc.mouse_action([0x10, 0x00, 0x00], &mut mouse);
-        assert_eq!(mouse.location, (10, 10));
+        mc.mouse_action([0x10, 0x00, 0x00]);
+        assert_eq!(mc.mouse.location, (10, 10));
 
         // x += 2
-        mc.mouse_action([0x10, 0x00, 0x02], &mut mouse);
-        assert_eq!(mouse.location, (12, 10));
+        mc.mouse_action([0x10, 0x00, 0x02]);
+        assert_eq!(mc.mouse.location, (12, 10));
 
         // y += 2
-        mc.mouse_action([0x10, 0x08, 0x00], &mut mouse);
-        assert_eq!(mouse.location, (12, 12));
+        mc.mouse_action([0x10, 0x08, 0x00]);
+        assert_eq!(mc.mouse.location, (12, 12));
 
         // x += 2, y += 2
-        mc.mouse_action([0x10, 0x08, 0x02], &mut mouse);
-        assert_eq!(mouse.location, (14, 14));
+        mc.mouse_action([0x10, 0x08, 0x02]);
+        assert_eq!(mc.mouse.location, (14, 14));
 
         let d: i32 = -2;
         // x -= 2
-        mc.mouse_action([0x10, ((d >> 8) & 0x03) as u8, (d & 0xFF) as u8], &mut mouse);
-        assert_eq!(mouse.location, (12, 14));
+        mc.mouse_action([0x10, ((d >> 8) & 0x03) as u8, (d & 0xFF) as u8]);
+        assert_eq!(mc.mouse.location, (12, 14));
 
         // y -= 2
-        mc.mouse_action([0x10 | ((d >> 6) & 0x0F) as u8, ((d << 2) & 0xFC) as u8, 0x00], &mut mouse);
-        assert_eq!(mouse.location, (12, 12));
+        mc.mouse_action([0x10 | ((d >> 6) & 0x0F) as u8, ((d << 2) & 0xFC) as u8, 0x00]);
+        assert_eq!(mc.mouse.location, (12, 12));
 
         // x -= 2, y -= 2
-        mc.mouse_action([((d >> 6) & 0x0F) as u8, (((d << 2) & 0xFC) | ((d >> 8) & 0x03)) as u8, (d & 0xFF) as u8], &mut mouse);
-        assert_eq!(mouse.location, (10, 10));
+        mc.mouse_action([((d >> 6) & 0x0F) as u8, (((d << 2) & 0xFC) | ((d >> 8) & 0x03)) as u8, (d & 0xFF) as u8]);
+        assert_eq!(mc.mouse.location, (10, 10));
     }
 
     #[test]
     fn mouse_button_test() {
-        let mut mouse = MockMouse {
-            location: (10, 10),
-            display_size: (100, 100),
-            button_pressed: ButtonPressed::default(),
-        };
-        let mut mc = MouseControl::new();
+        let mut mc = init_test();
 
         // press left button
-        mc.mouse_action([0x20, 0x00, 0x00], &mut mouse);
-        assert_eq!(mouse.button_pressed.left, true);
+        mc.mouse_action([0x20, 0x00, 0x00]);
+        assert_eq!(mc.mouse.button_pressed.left, true);
         assert_eq!(mc.button_pressed.left, true);
 
         // press again, no release before
-        mouse.button_pressed.left = false;
-        mc.mouse_action([0x20, 0x00, 0x00], &mut mouse);
-        assert_eq!(mouse.button_pressed.left, false);  // unchanged
+        mc.mouse.button_pressed.left = false;
+        mc.mouse_action([0x20, 0x00, 0x00]);
+        assert_eq!(mc.mouse.button_pressed.left, false);
         assert_eq!(mc.button_pressed.left, true);
 
         // release left button
-        mc.mouse_action([0x20, 0x00, 0x01], &mut mouse);
-        assert_eq!(mouse.button_pressed.left, false); 
+        mc.mouse_action([0x20, 0x00, 0x01]);
+        assert_eq!(mc.mouse.button_pressed.left, false); 
         assert_eq!(mc.button_pressed.left, false);
         
         // release again, no press before
-        mouse.button_pressed.left = true;
-        mc.mouse_action([0x20, 0x00, 0x01], &mut mouse);
-        assert_eq!(mouse.button_pressed.left, true); // unchanged
+        mc.mouse.button_pressed.left = true;
+        mc.mouse_action([0x20, 0x00, 0x01]);
+        assert_eq!(mc.mouse.button_pressed.left, true);
         assert_eq!(mc.button_pressed.left, false);
         
 
         // press middle button
-        mc.mouse_action([0x20, 0x00, 0x02], &mut mouse);
-        assert_eq!(mouse.button_pressed.middle, true);
+        mc.mouse_action([0x20, 0x00, 0x02]);
+        assert_eq!(mc.mouse.button_pressed.middle, true);
         assert_eq!(mc.button_pressed.middle, true);
 
         // press again, no release before
-        mouse.button_pressed.middle = false;
-        mc.mouse_action([0x20, 0x00, 0x02], &mut mouse);
-        assert_eq!(mouse.button_pressed.middle, false);  // unchanged
+        mc.mouse.button_pressed.middle = false;
+        mc.mouse_action([0x20, 0x00, 0x02]);
+        assert_eq!(mc.mouse.button_pressed.middle, false);  // unchanged
         assert_eq!(mc.button_pressed.middle, true);
 
         // release middle button
-        mc.mouse_action([0x20, 0x00, 0x03], &mut mouse);
-        assert_eq!(mouse.button_pressed.middle, false); 
+        mc.mouse_action([0x20, 0x00, 0x03]);
+        assert_eq!(mc.mouse.button_pressed.middle, false); 
         assert_eq!(mc.button_pressed.middle, false);
         
         // release again, no press before
-        mouse.button_pressed.middle = true;
-        mc.mouse_action([0x20, 0x00, 0x03], &mut mouse);
-        assert_eq!(mouse.button_pressed.middle, true); // unchanged
+        mc.mouse.button_pressed.middle = true;
+        mc.mouse_action([0x20, 0x00, 0x03]);
+        assert_eq!(mc.mouse.button_pressed.middle, true); // unchanged
         assert_eq!(mc.button_pressed.middle, false);
 
 
         // press right button
-        mc.mouse_action([0x20, 0x00, 0x04], &mut mouse);
-        assert_eq!(mouse.button_pressed.right, true);
+        mc.mouse_action([0x20, 0x00, 0x04]);
+        assert_eq!(mc.mouse.button_pressed.right, true);
         assert_eq!(mc.button_pressed.right, true);
 
         // press again, no release before
-        mouse.button_pressed.right = false;
-        mc.mouse_action([0x20, 0x00, 0x04], &mut mouse);
-        assert_eq!(mouse.button_pressed.right, false);  // unchanged
+        mc.mouse.button_pressed.right = false;
+        mc.mouse_action([0x20, 0x00, 0x04]);
+        assert_eq!(mc.mouse.button_pressed.right, false);  // unchanged
         assert_eq!(mc.button_pressed.right, true);
 
         // release right button
-        mc.mouse_action([0x20, 0x00, 0x05], &mut mouse);
-        assert_eq!(mouse.button_pressed.right, false); 
+        mc.mouse_action([0x20, 0x00, 0x05]);
+        assert_eq!(mc.mouse.button_pressed.right, false); 
         assert_eq!(mc.button_pressed.right, false);
         
         // release again, no press before
-        mouse.button_pressed.right = true;
-        mc.mouse_action([0x20, 0x00, 0x05], &mut mouse);
-        assert_eq!(mouse.button_pressed.right, true); // unchanged
+        mc.mouse.button_pressed.right = true;
+        mc.mouse_action([0x20, 0x00, 0x05]);
+        assert_eq!(mc.mouse.button_pressed.right, true); // unchanged
         assert_eq!(mc.button_pressed.right, false);
     }
 
 }
+    

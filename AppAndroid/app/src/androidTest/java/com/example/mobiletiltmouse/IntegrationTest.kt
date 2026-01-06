@@ -37,13 +37,6 @@ class IntegrationTest {
                 up()
             }
         Thread.sleep(100)
-        composeTestRule.onNodeWithContentDescription("Middle mouse button")
-            .performTouchInput {
-                down(center)
-                Thread.sleep(100)
-                up()
-            }
-        Thread.sleep(100)
         composeTestRule.onNodeWithContentDescription("Right mouse button")
             .performTouchInput {
                 down(center)

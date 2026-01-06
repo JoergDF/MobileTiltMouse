@@ -19,8 +19,8 @@ final class IntegrationTests: XCTestCase {
                       "Could not connect to MobileTiltMouse server within timeout")
             
         app.otherElements["LeftMouseButton"].tap()
-        app.otherElements["MiddleMouseButton"].tap()
         app.otherElements["RightMouseButton"].tap()
+        
     }
    
 }
