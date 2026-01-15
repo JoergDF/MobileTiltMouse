@@ -48,7 +48,7 @@ The creation of the self-signed client certificate of the QUIC connection is des
 
 This project uses the following libraries:
 
-- [Kwik](https://github.com/ptrd/kwik) – QUIC protocol
+- [Kwik](https://github.com/ptrd/kwik) (with [LGPL license](https://github.com/ptrd/kwik?tab=readme-ov-file#license)) - QUIC protocol
 - [Mockito-Kotlin](https://github.com/mockito/mockito-kotlin) - mock for testing
 
 

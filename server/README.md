@@ -22,7 +22,7 @@ Tested on MacOS, Linux (with X11) and Windows.
     - Linux: \
       Use X11, not Wayland. Install:
       ```
-      sudo apt install libxdo-dev xorg-dev libxcb-shape0-dev libxcb-xfixes0-dev clang avahi-daemon libavahi-client-dev
+      sudo apt update && sudo apt install libxdo-dev xorg-dev libxcb-shape0-dev libxcb-xfixes0-dev clang avahi-daemon libavahi-client-dev
       ```
     - Windows: \
       If you [install Visual Studio for using Rust](https://rust-lang.github.io/rustup/installation/windows-msvc.html), also select manually (both) `clang` components for installation.

@@ -13,7 +13,9 @@ use mobile_tilt_mouse::connection_handler;
 // Test command for running the following integration tests (must run sequentially, hence --test-threads=1):
 // cargo test --test integration_tests -- --ignored --test-threads=1
 
+#[cfg(target_os = "macos")]
 const IOS_SIMULATOR_DEVICE: &str = "iPhone 17";
+
 const ANDROID_EMULATOR_DEVICE: &str = "Pixel_9_API_36.0";
 
 

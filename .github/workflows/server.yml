@@ -13,20 +13,31 @@ env:
 
 jobs:
   test:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
     name: Build and Test
-    runs-on: macos-latest
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: ./server
-        
+        working-directory: ./server  
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Get rust version
-      run: rustc --version --verbose
-    - name: Get cargo version
-      run: cargo --version --verbose
-    - name: Build
-      run: cargo build
-    - name: Run tests
-      run: cargo test
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Get rust version
+        run: rustc --version --verbose
+      - name: Get cargo version
+        run: cargo --version --verbose
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+          key: server-${{ runner.os }}-${{ hashFiles('**/server/Cargo.lock') }}
+      - if: runner.os == 'Linux'
+        name: Install additional packages
+        run: sudo apt update && sudo apt install -y libxdo-dev xorg-dev libxcb-shape0-dev libxcb-xfixes0-dev clang avahi-daemon libavahi-client-dev
+      - name: Build
+        run: cargo build
+      - name: Run unit tests
+        run: cargo test --lib
