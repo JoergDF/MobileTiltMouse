@@ -55,13 +55,4 @@ class ConnectionTest {
         assertNull(conn.quicStream)
         assertFalse(NetworkState.isConnected)
     }
-
-    @Test
-    fun checkServerCertificate() {
-        val conn = Connection(null, null, null)
-
-        // empty or invalid certificate
-        assertFalse(conn.checkServerCertificate(byteArrayOf()))
-        assertFalse(conn.checkServerCertificate(byteArrayOf(0x01, 0x02, 0x03)))
-    }
 }

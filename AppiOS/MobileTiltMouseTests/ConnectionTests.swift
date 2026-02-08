@@ -29,6 +29,35 @@ import Foundation
     }
     
     @Test
+    func loadServerCertHash() {
+        let conn = Connection(errAlert: ErrorAlert(), networkStatus: NWStatus(), pairing: nil)
+        let arr = conn.loadServerCertHash()
+        
+        #expect(arr != nil)
+        #expect(arr?.count == 32)
+        // not all elements are 0, so their sum is not 0
+        #expect(arr?.reduce(0, { UInt32($0) + UInt32($1) }) != 0)
+    }
+    
+    @Test
+    func loadClientCertificate() {
+        let conn = Connection(errAlert: ErrorAlert(), networkStatus: NWStatus(), pairing: nil)
+        let identity = conn.loadClientCertificate()
+        
+        #expect(identity != nil)
+        
+        var privateKey: SecKey?
+        let statusKey = SecIdentityCopyPrivateKey(identity!, &privateKey)
+        #expect(statusKey == errSecSuccess)
+        #expect(privateKey != nil)
+        
+        var certificate: SecCertificate?
+        let statusCert = SecIdentityCopyCertificate(identity!, &certificate)
+        #expect(statusCert == errSecSuccess)
+        #expect(certificate != nil)
+    }
+    
+    @Test
     func startConnection() {
         let testEndpoint = NWEndpoint.hostPort(host: "localhost", port: 22222)
         let conn = Connection(errAlert: ErrorAlert(), networkStatus: NWStatus(), pairing: nil)

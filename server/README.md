@@ -148,34 +148,11 @@ Data packets with unknown headers are ignored.
 
 ## Self-signed certificates
 
-The QUIC connection uses different self-signed certificates for server and client. 
+The QUIC connection uses different self-signed certificates for server and client. The certificates are created during build phase of the server software. Every time new certificates and their keys are created they are different. New versions are created after `cargo clean` or if the file `build.rs` is changed.
 
-- Create certificate and its private key:
-  ``` 
-  openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 100000 -nodes -subj '/CN=localhost'
-  ```
-  
-- Convert certificate and private key to PKCS#12:
-  - server: 
-    ```
-    openssl pkcs12 -export -in cert.pem -inkey key.pem -out cert.p12 -passout pass:mtm_server
-    ```
-  - client: \
-    Older Android versions (like Android 10/API 29) do not support current default algorithms for encryption (which is AES_256_CBC with PBKDF2), therefore [legacy mode](https://docs.openssl.org/master/man1/openssl-pkcs12/) is required (using RC2_CBC or 3DES_CBC) :  
-    ```
-    openssl pkcs12 -legacy -export -in cert.pem -inkey key.pem -out cert.p12 -passout pass:mtm_client
-    ```
+The server build process automatically includes server certificate and client certificate hash. Client certificate and server certificate hash are copied to [iOS app](../AppiOS) and [Android app](../AppAndroid). They are integrated when the apps are built. 
 
-- Convert certificate from PEM to DER format:
-  ```
-  openssl x509 -outform der -in cert.pem -out cert.der
-  ```
-
-- Get reference hash value of cert.der:
-  ```
-  shasum -a 256 cert.der
-  ```
-  The hash is used to verify the certificate.
+Therefore it is required to first build the server and then the clients.
   
 
 ## Certificate Check
@@ -226,12 +203,15 @@ This project uses the following libraries:
 - [rustls](https://crates.io/crates/rustls) - TLS configuration
 - [tokio](https://crates.io/crates/tokio) - connection handling
 - [zeroconf](https://crates.io/crates/zeroconf) - Bonjour/mDNS service
-- [hex-literal](https://crates.io/crates/hex-literal) - hex conversion in certificate check 
-- [sha2](https://crates.io/crates/sha2) - client certificate check with RustCrypto's hashes
+- [hex](https://crates.io/crates/hex) - hex conversion in certificate handling 
+- [sha2](https://crates.io/crates/sha2) - client certificate check with RustCrypto's hashes, creating PKCS#12 certificate
 - [aes-gcm-siv](https://crates.io/crates/aes-gcm-siv) - encrypted storage of server and client IDs
 - [hkdf](https://crates.io/crates/hkdf) - HMAC-based Key Derivation Function
-- [rand](https://crates.io/crates/rand) - pairing code generation
+- [rand](https://crates.io/crates/rand) - pairing code generation, creating PKCS#12 certificate 
+- [rand_core](https://crates.io/crates/rand_core) - creating PKCS#12 certificate 
+- [rand_pcg](https://crates.io/crates/rand_pcg) - creating PKCS#12 certificate
 - [p12-keystore](https://crates.io/crates/p12-keystore) - handle PKCS#12 certificate
+- [rcgen](https://crates.io/crates/rcgen) - creating server and client certificates
 - [zeroize](https://crates.io/crates/zeroize) - securely clear key from memory
 - [rdev](https://crates.io/crates/rdev) - listen to mouse events in integration tests
 

@@ -1,9 +1,9 @@
 {
   "data" : [
     {
-      "filename" : "client_cert.p12",
+      "filename" : "server_cert_hash.txt",
       "idiom" : "universal",
-      "universal-type-identifier" : "com.rsa.pkcs-12"
+      "universal-type-identifier" : "public.plain-text"
     }
   ],
   "info" : {

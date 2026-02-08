@@ -32,7 +32,7 @@ The illustrations below show the three basic positions in which you can hold you
 
 ## Getting Started
 
-1. Start the [server](../server) on your computer.
+1. Build and run the [server](../server) on your computer.
 2. Build and run the app on your phone. 
 3. The app will automatically connect to the server. On the very first connection, the pairing code of the server need to be entered.
 4. Use your phone's motion to control the mouse cursor.
@@ -43,3 +43,5 @@ When you start the app for the first time on your phone, it will request permiss
 ## Client certificate
 
 The creation of the self-signed client certificate of the QUIC connection is described in the [certificate section of the server](../server/README.md#self-signed-certificates).
+
+It is important to build the server software before the app software is compiled. As all certificates are created during the build of the server.

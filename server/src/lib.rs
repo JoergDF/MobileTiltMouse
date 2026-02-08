@@ -5,14 +5,16 @@ use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use p12_keystore::KeyStore;
-use sha2::{Sha256, Digest};
-use hex_literal::hex;
+use sha2::{Sha256, Sha512, Digest};
+use rand_core::{SeedableRng, RngCore};
+use rand_pcg::Pcg64Mcg;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
 use zeroconf::prelude::*;
 use zeroconf::{MdnsService, ServiceType};
+use hex::FromHex;
 
 mod mouse_control;
 mod pairing;
@@ -21,11 +23,9 @@ pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync + 'stati
 
 const ALPN_QUIC_HTTP: &[&[u8]] = &[b"mobiletiltmouseproto"];
 // embed the p12-file (containing certificate and private key) as byte array
-const SERVER_CERT_P12: &[u8] = include_bytes!("cert.p12");
-// password of server's PKCS#12/p12 certificate
-const SERVER_CERT_PASSWORD: &str = "mtm_server";
+const SERVER_CERT_P12: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/server_cert.p12"));
 // SHA256-hash of client certificate's DER-formatted file
-const CLIENT_CERT_HASH: [u8; 32] = hex!("78f63567c0bb005c25cea87a4483eb7f97a31ed65882f3907a4539bde9dfa189");
+const CLIENT_CERT_HASH: &str = include_str!(concat!(env!("OUT_DIR"), "/client_cert_hash.txt"));
 
 
 /// Handles incoming QUIC connections and mouse control data.
@@ -146,8 +146,10 @@ impl ClientCertVerifier for ClientCert {
         now: UnixTime,
     ) -> std::result::Result<ClientCertVerified, rustls::Error>
     {
+        let ref_hash = <[u8; 32]>::from_hex(CLIENT_CERT_HASH).unwrap();
         let hash = Sha256::digest(end_entity);
-        if hash[..] == CLIENT_CERT_HASH {
+
+        if hash[..] == ref_hash {
             println!("Client certificate verified successfully");
             Ok(ClientCertVerified::assertion())
         } else {
@@ -205,7 +207,19 @@ impl ClientCertVerifier for ClientCert {
 /// - The certificate or key cannot be parsed.
 /// - The QUIC or TLS configuration fails.
 fn configure_server() -> Result<ServerConfig> {
-    let keystore = KeyStore::from_pkcs12(SERVER_CERT_P12, SERVER_CERT_PASSWORD)?; 
+    let client_cert_hash = <[u8; 32]>::from_hex(CLIENT_CERT_HASH).unwrap();
+    // concat 8 bytes to an u64-integer
+    let seed_state: u64 = client_cert_hash[..8].iter().fold(0, |acc, elem| acc * 256 + u64::from(*elem));
+    let mut rng = Pcg64Mcg::seed_from_u64(seed_state);
+    let mut rng_data = [0u8; 32];
+	rng.fill_bytes(&mut rng_data);
+	let mut hasher = Sha512::new();
+	hasher.update(&client_cert_hash);
+	hasher.update(rng_data);
+	let dat = hasher.finalize();
+	let dat_str = dat.into_iter().map(|i| format!("{:02x}", i)).collect::<String>();
+
+    let keystore = KeyStore::from_pkcs12(SERVER_CERT_P12, &dat_str)?;
     let key_chain = keystore.private_key_chain().unwrap().1;
     let cert_der = CertificateDer::from(key_chain.chain()[0].as_der()).into_owned();
     let priv_key_der = PrivateKeyDer::try_from(key_chain.key())?.clone_key();
@@ -221,7 +235,7 @@ fn configure_server() -> Result<ServerConfig> {
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     // Only 1 incoming unidirectional stream is allowed. 
     // But there could be multiple connections with 1 stream each
-    transport_config.max_concurrent_uni_streams(1_u8.into());
+    //transport_config.max_concurrent_uni_streams(1_u8.into());
     // enable keep alive
     transport_config.keep_alive_interval(Some(std::time::Duration::from_secs(20)));
     

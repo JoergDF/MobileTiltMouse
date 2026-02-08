@@ -102,6 +102,7 @@ class NetworkBrowser(context: Context, val connection: Connection?, val remoteAc
                     )
                 } catch (e: Exception) {
                     Log.e(TAG, "Error start connection: $e")
+                    stopBrowsing()
                     return
                 }
 

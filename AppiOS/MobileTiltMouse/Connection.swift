@@ -7,8 +7,6 @@ import CryptoKit
 
 private let alpnName = "mobiletiltmouseproto"
 private let connectionTimeout = 30  // seconds
-private let serverCertHashString = "50f3eea7c26b1c2a22d3593c37e8f66afcc431265c93c0ce1f4a7544aa7a6c55"
-private let clientCertPassword = "mtm_client"
 
 
 /// Manages QUIC network connections with the remote server that controls mouse pointer.
@@ -56,28 +54,80 @@ class Connection {
         errAlert.message = "Loading of client certificate failed."
     }
     
+    /// Loads the hash of the server certificate.
+    ///
+    /// The file with the hash string is loaded from the app's asset catalog.
+    /// The hex string of the file is converted to UInt8 values.
+    ///
+    /// - Returns: `UInt8` array of the loaded hash, `nil` on error
+    func loadServerCertHash() -> [UInt8]? {
+        // load server certificate hash from file
+        guard let serverCertHashData = NSDataAsset(name: "ServerCertHash")?.data else {
+            lgg.error("Error: Could not load server certificate hash")
+            return nil
+        }
+        
+        // convert hash data to string
+        guard let serverCertHashString = String(data: serverCertHashData, encoding: .utf8) else {
+            lgg.error("Error: Could not convert server certificate hash data to string")
+            return nil
+        }
+        
+        // check length
+        guard serverCertHashString.count == 64 else {
+            lgg.error("Error: Wrong length of server certificate hash")
+            return nil
+        }
+        
+        // convert hash hex-string to UInt8-array
+        let serverCertHashChars = Array(serverCertHashString)
+        let serverCertHash = stride(from: 0, to: serverCertHashChars.count, by: 2)
+            .compactMap { UInt8("\(serverCertHashChars[$0])\(serverCertHashChars[$0 + 1])", radix: 16) }
+        
+        return serverCertHash
+    }
      
+    
     /// Loads the self-signed client certificate.
     ///
-    /// This method attempts to load a PKCS#12 (.p12) client certificate named "ClientCertificate"
-    /// from the app's asset catalog. It imports the certificate and extract the identity required 
-    /// for client authentication in QUIC connections.
+    /// This method loads a PKCS#12 (.p12) client certificate from the app's asset catalog.
+    /// It imports the certificate and extract the identity required for client authentication in QUIC connections.
     ///
     /// Steps performed:
     /// 1. Loads the PKCS#12 data from the asset catalog.
-    /// 2. Imports the certificate using the provided password.
+    /// 2. Imports and decrypts the certificate.
     /// 3. Extracts the first identity from the imported items.
     /// 4. Returns the SecIdentity for use in network security configuration.
     ///
-    /// If loading or importing fails, logs an error and returns nil.
-    ///
     /// - Returns: The extracted `SecIdentity` if successful, or `nil` if loading/importing fails.
     func loadClientCertificate() -> SecIdentity? {
+        // load client certificate from file
         guard let p12Data = NSDataAsset(name: "ClientCertificate")?.data else {
             lgg.error("Error: Could not load client certificate")
             return nil
         }
-        let p12Options = [kSecImportExportPassphrase as String: clientCertPassword]
+        
+        guard let serverCertHash = loadServerCertHash() else {
+            lgg.error("Error loading client certificate: Could not get server certificate hash")
+            return nil
+        }
+        
+        let randomData = (0..<32).map { i in
+            var hasher = SHA256()
+            hasher.update(data: serverCertHash)
+            hasher.update(data: [UInt8(i)])
+            let dat = hasher.finalize()
+            return Data(dat)[0]
+        }
+
+        var hasher = SHA512()
+        hasher.update(data: serverCertHash)
+        hasher.update(data: randomData)
+        let dat = hasher.finalize()
+        let datString = dat.map { String(format: "%02hhx", $0) }.joined()
+
+        // import p12 data
+        let p12Options = [kSecImportExportPassphrase as String: datString]
         var rawItems: CFArray?
         let status = SecPKCS12Import(p12Data as CFData, p12Options as CFDictionary, &rawItems)
         guard status == errSecSuccess else {
@@ -96,18 +146,12 @@ class Connection {
     
     /// Returns a closure verifying self-signed server certificate
     ///
-    /// 1. Requires exactly one certificate (no CA chain)
-    /// 2. Extracts the certificate in DER format
+    /// 1. Extracts the received certificate in DER format
+    /// 2. Get reference hash
     /// 3. Computes SHA-256 hash of the DER data
-    /// 4. Compares against hardcoded reference hash
+    /// 4. Compares against reference hash
     ///
-    /// To generate the reference hash for a new server certificate:
-    /// ```bash
-    /// # Convert certificate from PEM to DER format
-    /// openssl x509 -in cert.pem -outform DER -out cert.der
-    /// # Calculate SHA-256 hash
-    /// shasum -a 256 cert.der
-    /// ```
+    /// - Returns: closure with check
     func verifyServerCertificate() -> sec_protocol_verify_t {
         return { [weak self] (sec_protocol_metadata, sec_trust, completionHandler) in
             
@@ -129,6 +173,14 @@ class Connection {
                 completionHandler(false)
                 return
             }
+
+            // get reference hash
+            guard let referenceCertHash = self?.loadServerCertHash() else {
+                lgg.error("Error verifying server certificate: Could not get server certificate hash")
+                self?.serverCertificateAlert()
+                completionHandler(false)
+                return
+            }
             
             // get DER format of received certificate
             // get its hash value and
@@ -137,17 +189,8 @@ class Connection {
             
             let digest = SHA256.hash(data: dataDerCF as Data)
             
-            // reference hash of server certificate (in DER format)
-            // is output of command line tool: shasum -a 256 cert.der
-            // convert hex-string of hash to integer
-            var referenceCertHash = Array<UInt8>(repeating: 0, count: 32)
-            let serverCertHashChars = Array(serverCertHashString)
-            for i in stride(from: 0, to: serverCertHashChars.count, by: 2) {
-                referenceCertHash[i / 2] = UInt8("\(serverCertHashChars[i])\(serverCertHashChars[i+1])", radix: 16) ?? 0
-            }
-
             if !digest.elementsEqual(referenceCertHash) {
-                lgg.error("Error: Certificate hash is wrong")
+                lgg.error("Error: Server certificate hash is wrong")
                 self?.serverCertificateAlert()
                 completionHandler(false)
                 return
