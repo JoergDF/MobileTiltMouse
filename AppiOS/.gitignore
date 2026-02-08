@@ -2,6 +2,10 @@
 #
 # gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
 
+## certificates
+client_cert.p12
+server_cert_hash.txt
+
 ## User settings
 xcuserdata/
 

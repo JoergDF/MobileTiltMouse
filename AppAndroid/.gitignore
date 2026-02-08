@@ -1,3 +1,7 @@
+# certificates
+client_cert.p12
+server_cert_hash.txt
+
 # Gradle files
 .gradle/
 build/
