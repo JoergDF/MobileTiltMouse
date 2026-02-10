@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -33,10 +32,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    kotlin {
-        jvmToolchain(21)
-    }
-
     buildFeatures {
         compose = true
     }
@@ -45,6 +40,11 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        languageVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_0
+    }
+}
 
 dependencies {
     implementation(libs.androidx.core.ktx)

@@ -5,7 +5,7 @@ use p12_keystore::{PrivateKeyChain, KeyStore, KeyStoreEntry, EncryptionAlgorithm
 use sha2::{Digest, Sha256, Sha512};
 use rand_core::{SeedableRng, RngCore};
 use rand_pcg::Pcg64Mcg;
-use rand;
+use hex::ToHex;
 
 // View print output: use option -vv
 // e.g. cargo -vv b 
@@ -27,7 +27,7 @@ fn main() {
 	let client_hash_outfile = out_path.join(CLIENT_HASH_FILE);
 
 	println!("========");
-	println!("OUT_DIR:  {:?}", out_dir);
+	println!("OUT_DIR:  {}", out_dir.display());
 	println!("========");
 
 	// create server's self-signed certificate and key
@@ -70,7 +70,7 @@ fn main() {
 /// *  hash as array
 fn create_cert_hash(hash_outfile: &Path, cert_der: &[u8]) -> [u8; 32] {
 	let cert_der_hash = Sha256::digest(cert_der);
-	let hash_hexstring = cert_der_hash.into_iter().map(|i| format!("{:02x}", i)).collect::<String>();
+	let hash_hexstring = cert_der_hash.encode_hex::<String>();
 	fs::write(hash_outfile, hash_hexstring).unwrap();
 	cert_der_hash.into()
 }
@@ -114,13 +114,13 @@ fn create_server_keystore(p12_outfile: &Path, cert: &Certificate, key: &KeyPair,
 	rng.fill_bytes(&mut rng_data);
 	// hash server's DER-certificate-sha256 hash and pseudo random array
 	let mut hasher = Sha512::new();
-	hasher.update(&client_cert_hash);
+	hasher.update(client_cert_hash);
 	hasher.update(rng_data);
 	let dat = hasher.finalize();
-	let dat_str = dat.into_iter().map(|i| format!("{:02x}", i)).collect::<String>();
+	let dat_str = dat.encode_hex::<String>();
 
 	let p12 = key_store.writer(&dat_str).write().unwrap();
-	fs::write(&p12_outfile, p12).unwrap();
+	fs::write(p12_outfile, p12).unwrap();
 }
 
 /// Creates an encrypted p12 keystore of the client certificate and its key 
@@ -142,14 +142,14 @@ fn create_client_keystore(p12_outfile: &Path, cert: &Certificate, key: &KeyPair,
 	let random_data: Vec<u8> = (0..32).map(|i| {
 		let mut hasher = Sha256::new();
 		hasher.update(server_cert_hash);
-		hasher.update(&[i]);
+		hasher.update([i]);
 		hasher.finalize()[0]
 	}).collect();
 	let mut hasher = Sha512::new();
 	hasher.update(server_cert_hash);
 	hasher.update(random_data);
 	let dat = hasher.finalize();
-	let dat_str = dat.into_iter().map(|i| format!("{:02x}", i)).collect::<String>();
+	let dat_str = dat.encode_hex::<String>();
 
 	let p12 = key_store
 						.writer(&dat_str)
@@ -159,7 +159,7 @@ fn create_client_keystore(p12_outfile: &Path, cert: &Certificate, key: &KeyPair,
 						.mac_iterations(2048)
 						.write()
 						.unwrap();
-	fs::write(&p12_outfile, p12).unwrap();
+	fs::write(p12_outfile, p12).unwrap();
 }
 
 /// Copy certificate related files relevant for iOS and Android to the apps' assets directories.

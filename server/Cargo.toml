@@ -26,10 +26,11 @@ zeroize = "1.8"
 rdev = "0.5.3"
 
 [build-dependencies]
+hex = "0.4.3"
 rcgen = { version = "0.14.7", features = ["aws_lc_rs"] }
 p12-keystore = "0.2"
-sha2 = "0.10"
 rand = "0.9"
 rand_pcg = "0.9.0"
 rand_core = "0.9.5"
+sha2 = "0.10"
 

@@ -14,7 +14,7 @@ use std::net::Ipv6Addr;
 use std::sync::Arc;
 use zeroconf::prelude::*;
 use zeroconf::{MdnsService, ServiceType};
-use hex::FromHex;
+use hex::{FromHex, ToHex};
 
 mod mouse_control;
 mod pairing;
@@ -58,10 +58,13 @@ const CLIENT_CERT_HASH: &str = include_str!(concat!(env!("OUT_DIR"), "/client_ce
 ///
 /// # Returns
 /// Returns `Ok(())` upon successful initialization. The server itself runs indefinitely.
+/// 
+/// # Errors
+/// 
 /// An `Err` is returned if there is a failure during the initial setup of the server
 /// or the mDNS service.
 #[tokio::main]
-pub async fn connection_handler(/* mouse: &mut impl Mouse,  */test: bool) -> Result<()> {
+pub async fn connection_handler(test: bool) -> Result<()> {
     //initialize_logger("trace");
 
     // set up quic server
@@ -69,7 +72,7 @@ pub async fn connection_handler(/* mouse: &mut impl Mouse,  */test: bool) -> Res
     
     let server_config = configure_server()?;
     let endpoint = Endpoint::server(server_config, server_addr)?;
-    println!("My address {:?}", endpoint.local_addr().unwrap());
+    println!("My address {:?}", endpoint.local_addr()?);
 
     // bonjour
     let service_type = ServiceType::new("mobiletiltmouse", "udp")?;
@@ -214,10 +217,10 @@ fn configure_server() -> Result<ServerConfig> {
     let mut rng_data = [0u8; 32];
 	rng.fill_bytes(&mut rng_data);
 	let mut hasher = Sha512::new();
-	hasher.update(&client_cert_hash);
+	hasher.update(client_cert_hash);
 	hasher.update(rng_data);
 	let dat = hasher.finalize();
-	let dat_str = dat.into_iter().map(|i| format!("{:02x}", i)).collect::<String>();
+	let dat_str = dat.encode_hex::<String>();
 
     let keystore = KeyStore::from_pkcs12(SERVER_CERT_P12, &dat_str)?;
     let key_chain = keystore.private_key_chain().unwrap().1;

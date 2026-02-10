@@ -86,15 +86,15 @@ impl<T: Mouse> MouseControl<T> {
     ///   - `0x4/0x5`: Right button press/release
     /// 
     pub fn mouse_action(&mut self, dat: [u8; 3]) {
-        let data = ((dat[0] as u32) << 16) | ((dat[1] as u32) << 8) | (dat[2] as u32);
+        let data = (u32::from(dat[0]) << 16) | (u32::from(dat[1]) << 8) | u32::from(dat[2]);
         //println!("{:06x}", data);
 
-        let header = (data & 0xF00000) >> 20;
+        let header = (data & 0x00F0_0000) >> 20;
         match header {
             0x0 => {
                 // move cursor
-                let payload_x = (((data & 0x03FF) as i32) << 22) >> 22;
-                let payload_y = (((data & (0x03FF << 10)) as i32) << 12) >> 22;
+                let payload_x = ((data & 0x03FF).cast_signed() << 22) >> 22;
+                let payload_y = ((data & (0x03FF << 10)).cast_signed() << 12) >> 22;
 
                 let loc = self.mouse.location().unwrap();
                 let display_size = self.mouse.main_display().unwrap();
@@ -104,8 +104,8 @@ impl<T: Mouse> MouseControl<T> {
             },
             0x1 => { 
                 // scroll page
-                let payload_x = (((data & 0x03FF) as i32) << 22) >> 22;
-                let payload_y = (((data & (0x03FF << 10)) as i32) << 12) >> 22;
+                let payload_x = ((data & 0x03FF).cast_signed() << 22) >> 22;
+                let payload_y = ((data & (0x03FF << 10)).cast_signed() << 12) >> 22;
 
                 // horizontal scroll
                 self.mouse.scroll(payload_x, Axis::Horizontal).expect("Unable to scroll horizontally");
@@ -113,40 +113,40 @@ impl<T: Mouse> MouseControl<T> {
                 self.mouse.scroll(payload_y, Axis::Vertical).expect("Unable to scroll vertically");
             },
             0x2 => {
-                let payload = data & 0x0FFFFF;
+                let payload = data & 0x000F_FFFF;
                 match payload {
                     0x0  => {
-                        if self.button_pressed.left == false {
+                        if !self.button_pressed.left {
                             self.mouse.button(Button::Left, Direction::Press).expect("Unable to press left mouse button");
                             self.button_pressed.left = true;
                         }
                     }, 
                     0x1 => {
-                        if self.button_pressed.left == true {
+                        if self.button_pressed.left {
                             self.mouse.button(Button::Left, Direction::Release).expect("Unable to release left mouse button");
                             self.button_pressed.left = false;
                         }
                     },
                     0x2 => {
-                        if self.button_pressed.middle == false {
+                        if !self.button_pressed.middle {
                             self.mouse.button(Button::Middle, Direction::Press).expect("Unable to press middle mouse button");
                             self.button_pressed.middle = true;
                         }
                     },
                     0x3 => {
-                        if self.button_pressed.middle == true {
+                        if self.button_pressed.middle {
                             self.mouse.button(Button::Middle, Direction::Release).expect("Unable to release middle mouse button");
                             self.button_pressed.middle = false;
                         }
                     },
                     0x4 => {
-                        if self.button_pressed.right == false {
+                        if !self.button_pressed.right {
                             self.mouse.button(Button::Right, Direction::Press).expect("Unable to press right mouse button");
                             self.button_pressed.right = true;
                         }
                     },
                     0x5 => {
-                        if self.button_pressed.right == true {
+                        if self.button_pressed.right {
                             self.mouse.button(Button::Right, Direction::Release).expect("Unable to release right mouse button");
                             self.button_pressed.right = false;
                         }

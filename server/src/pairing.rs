@@ -55,33 +55,29 @@ enum IdSource {
 ///   "/home/alice/mobiletiltmouse/clients.bin").
 /// - On failure to resolve the home directory or create the subdirectory: 
 ///   the bare filename (without path)
-
 fn get_filename(id_src: IdSource) -> String {
     let filename = match id_src {
-        IdSource::Client   => FILENAME_CLIENT_IDS,
-        IdSource::Server   => FILENAME_SERVER_IDS,
-        IdSource::Test     => "test.bin",
-        IdSource::TestNone => "test.bin",
+        IdSource::Client => FILENAME_CLIENT_IDS,
+        IdSource::Server => FILENAME_SERVER_IDS,
+        IdSource::Test | IdSource::TestNone => "test.bin",
     };
 
     let user_home_dir = match id_src {
-        IdSource::Client   => std::env::home_dir(),
-        IdSource::Server   => std::env::home_dir(),
-        IdSource::Test     => Some(std::env::current_dir().unwrap()),
+        IdSource::Client | IdSource::Server => std::env::home_dir(),
+        IdSource::Test => Some(std::env::current_dir().unwrap()),
         IdSource::TestNone => None,
     };
 
     if let Some(home_dir) = user_home_dir {
         let home_sub_dir = home_dir.join(HOME_SUB_DIR);
-        if !home_sub_dir.is_dir() {
-            if fs::create_dir(&home_sub_dir).is_err() {
-                return filename.to_string();
-            }
+        if !home_sub_dir.is_dir() && fs::create_dir(&home_sub_dir).is_err() {
+            return filename.to_string();
         }
+        
         let path_filename = home_sub_dir.join(filename);
-        return path_filename.to_string_lossy().to_string();
+        path_filename.to_string_lossy().to_string()
     } else {
-        return filename.to_string();
+        filename.to_string()
     }
 }
 
@@ -130,14 +126,15 @@ pub async fn pairing(recv_stream: &mut RecvStream, send_stream: &mut SendStream,
         send_stream.write_all(&[0x51u8]).await?;
         println!("Server and client already know each other.");
         return Ok(());
-    } else {
-        send_stream.write_all(&[0x52u8]).await?;
-        println!("New devices, starting pairing process");
-    }
+    } 
 
     //
-    // unknown client, start pairing process
+    // unknown client or server, start pairing process
     //
+    println!("New devices, starting pairing process");
+    // inform client
+    send_stream.write_all(&[0x52u8]).await?;
+
     let mut code = [0xFu8; CODE_SIZE];
     let mut reject_countdown = REJECT_COUNT;
     loop {
@@ -242,7 +239,7 @@ async fn handle_server_id(recv_stream: &mut RecvStream, send_stream: &mut SendSt
         other => return Err(format!("Invalid server-id-status message: 0x{:02x}", other).into())
     };
 
-    return Ok((known_server, *key));
+    Ok((known_server, *key))
 }
 
 /// Handles receiving and verifying the client's ID.
@@ -280,7 +277,7 @@ async fn handle_client_id(recv_stream: &mut RecvStream, key: &[u8]) -> Result<(b
 
     let known_client = is_client_id_known(&client_id, key, &get_filename(IdSource::Client))?;
     
-    return Ok((known_client, client_id));
+    Ok((known_client, client_id))
 }
 
 /// Creates a unique server ID.
@@ -299,7 +296,7 @@ fn create_server_id() -> [u8; 32] {
 
     let id_raw = [rand_array.as_slice(), nanos.to_ne_bytes().as_slice()].concat();
     let id = Sha256::digest(id_raw);
-    return id.into();
+    id.into()
 } 
 
 /// Obtain the server ID associated with `key` from `filename`, creating and
@@ -317,7 +314,7 @@ fn get_server_id(key: &[u8], filename: &str) -> Result<[u8; 32]> {
         Ok(id)
     } else {
         let new_server_id = create_server_id();
-        save_id(&new_server_id, &key, filename)?;
+        save_id(&new_server_id, key, filename)?;
         Ok(new_server_id) 
     }
 }
@@ -337,11 +334,10 @@ fn get_server_id(key: &[u8], filename: &str) -> Result<[u8; 32]> {
 /// * `Ok(false)` if not found or does not match.
 /// * Err: IO and cryptographic errors.
 fn is_client_id_known(client_id: &[u8; 32], key: &[u8], filename: &str) -> Result<bool> {
-    if let Some(id) = load_id(key, filename)? {
-        if id == *client_id {
-            return Ok(true)
-        }
+    if let Some(id) = load_id(key, filename)? && id == *client_id {
+        return Ok(true)
     }
+    
     Ok(false)
 }
 
@@ -356,8 +352,8 @@ fn is_client_id_known(client_id: &[u8; 32], key: &[u8], filename: &str) -> Resul
 ///   with the generated code.
 fn generate_pairing_code(pairing_code: &mut [u8; CODE_SIZE]) {
     let mut rng = rand::rng();
-    for i in 0..CODE_SIZE {
-        pairing_code[i] = rng.random_range(0..10);
+    for p in pairing_code.iter_mut() {
+        *p = rng.random_range(0..10);
     }
 }
 
@@ -390,7 +386,7 @@ fn check_received_code(data: [u8; 3], code: [u8; CODE_SIZE]) -> bool {
            return false;
         }
     }
-    return true;
+    true
 }
 
 /// Save a 32‑byte ID to `filename` in encrypted form and maintain a rolling history.
@@ -468,11 +464,10 @@ fn load_id(key: &[u8], filename: &str) -> Result<Option<[u8; 32]>> {
         for _ in 0..ID_HISTORY {
             let mut encrypted_ids = [0u8; ENCRYPTED_ID_SIZE];
             file.read_exact(&mut encrypted_ids)?;
-            if let Some(id) = Crypto.decrypt(key, &encrypted_ids)? {
-                if id.len() == 32 {
-                    return Ok(Some(id.try_into().unwrap()));
-                }
+            if let Some(id) = Crypto.decrypt(key, &encrypted_ids)? && id.len() == 32 {
+                return Ok(Some(id.try_into().unwrap()));
             }
+            
         }
     }
     Ok(None)
@@ -511,7 +506,7 @@ impl Crypto {
     /// 
     /// * Ok(Vec<u8>) containing info(12) || nonce(12) || ciphertext.
     /// * Err on cryptographic or IO errors.    
-    pub fn encrypt(&mut self, key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+    pub fn encrypt(&self, key: &[u8], data: &[u8]) -> Result<Vec<u8>> {
         let mut info = [0u8; 12];
         let mut okm = Zeroizing::new([0u8; 32]); // output key material
 
@@ -529,7 +524,7 @@ impl Crypto {
 
         // combine info, nonce and data into a single vector, which is returned
         let combined_data = [&info[..], &nonce[..], &encrypted_data[..]].concat();
-        return Ok(combined_data);
+        Ok(combined_data)
     }
 
     /// Decrypt data produced by `encrypt`.
@@ -548,11 +543,11 @@ impl Crypto {
     /// * Ok(Some(plaintext)) if decryption and authentication succeed.
     /// * Ok(None) if authentication fails (ciphertext tampered or wrong key).
     /// * Err on invalid input lengths or other errors.
-    pub fn decrypt(&mut self, key: &[u8], combined_data: &[u8]) -> Result<Option<Vec<u8>>> {
+    pub fn decrypt(&self, key: &[u8], combined_data: &[u8]) -> Result<Option<Vec<u8>>> {
         // get info, nonce and encrypted data from input
         let info: [u8; 12] = combined_data[0..12].try_into()?;
         let nonce: [u8; 12] = combined_data[12..24].try_into()?; 
-        let encrypted_data: Vec<u8> = combined_data[24..].try_into()?; 
+        let encrypted_data: Vec<u8> = combined_data[24..].into(); 
 
         let mut okm = Zeroizing::new([0u8; 32]); // output key material
         self.key_derivation(key, &info, okm.as_mut())?;
@@ -560,11 +555,12 @@ impl Crypto {
         // decrypt data
         let cipher = Aes256GcmSiv::new_from_slice(okm.as_ref())?;
         let nonce_cipher = Nonce::from(nonce);
-        let decrypted_data = match cipher.decrypt(&nonce_cipher, encrypted_data.as_slice()) {
-            Ok(data) => Some(data),
-            _ => None,
-        };
-        return Ok(decrypted_data);
+        // let decrypted_data = match cipher.decrypt(&nonce_cipher, encrypted_data.as_slice()) {
+        //     Ok(data) => Some(data),
+        //     _ => None,
+        // };
+        let decrypted_data = cipher.decrypt(&nonce_cipher, encrypted_data.as_slice()).ok();
+        Ok(decrypted_data)
     }
 
     /// Derive an OKM (output key material) using HKDF‑SHA256.
@@ -584,10 +580,10 @@ impl Crypto {
     /// Returns:
     /// - Ok(()) on success
     /// - Err on invalid PRK length or requested output length.
-    fn key_derivation(&mut self, key: &[u8], info: &[u8], okm: &mut [u8]) -> Result<()> {
+    fn key_derivation(&self, key: &[u8], info: &[u8], okm: &mut [u8]) -> Result<()> {
         let hk = Hkdf::<Sha256>::from_prk(key)
             .map_err(|e| format!("Invalid PRK length for HKDF: {:?}", e))?;
-        hk.expand(&info, okm)
+        hk.expand(info, okm)
             .map_err(|e| format!("Invalid length for HKDF expand: {:?}", e))?;
         Ok(())
     }

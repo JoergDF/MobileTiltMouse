@@ -16,6 +16,8 @@ import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.cert.X509Certificate
 import java.time.Duration
+import kotlin.ExperimentalStdlibApi
+import kotlin.OptIn
 
 
 private const val ALPN = "mobiletiltmouseproto"
@@ -44,6 +46,7 @@ class InvalidCertificateException(message: String) : Exception(message)
  * @param remoteAccess An optional handler for managing network state and orchestrating connection restarts.
  * @param pairing An optional handler for the device pairing process.
  */
+@OptIn(ExperimentalStdlibApi::class)
 open class Connection(private val context: Context?, val remoteAccess: RemoteAccess?, val pairing: Pairing?) {
     var connection: QuicClientConnection? = null
     var quicStream: QuicStream? = null
