@@ -2,7 +2,7 @@ use quinn::{RecvStream, SendStream};
 use tokio::time::{sleep, Duration};
 use sha2::{Sha256, Digest};
 use hkdf::Hkdf;
-use rand::Rng;
+use rand::RngExt;
 use aes_gcm_siv::{
     aead::{rand_core::RngCore, Aead, KeyInit, OsRng}, AeadCore, Aes256GcmSiv, Nonce 
 };

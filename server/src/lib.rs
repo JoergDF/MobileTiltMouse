@@ -6,7 +6,7 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use p12_keystore::KeyStore;
 use sha2::{Sha256, Sha512, Digest};
-use rand_core::{SeedableRng, RngCore};
+use rand_core::{SeedableRng, Rng};
 use rand_pcg::Pcg64Mcg;
 use std::error::Error;
 use std::net::SocketAddr;

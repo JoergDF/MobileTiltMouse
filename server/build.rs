@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use p12_keystore::{PrivateKeyChain, KeyStore, KeyStoreEntry, EncryptionAlgorithm::PbeWithShaAnd3KeyTripleDesCbc, MacAlgorithm::HmacSha1};
 use sha2::{Digest, Sha256, Sha512};
-use rand_core::{SeedableRng, RngCore};
+use rand_core::{SeedableRng, Rng};
 use rand_pcg::Pcg64Mcg;
 use hex::ToHex;
 
