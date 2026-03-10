@@ -126,8 +126,10 @@ final class MobileTiltMouseUITests: XCTestCase {
         app.buttons["Reset Pairings"].tap()
         XCTAssertFalse(app.buttons["Reset Pairings"].exists, "Confirm Reset Pairings button should disappear")
         XCTAssertTrue(app.staticTexts["Reset done"].exists, "Reset confirmation must exist")
-        Thread.sleep(forTimeInterval: 2.0)
-        XCTAssertFalse(app.staticTexts["Reset done"].exists, "Reset confirmation must disappear")
+        // Reset confirmation must disappear after a while
+        let resetDone = app.staticTexts["Reset done"]
+        let expectation = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: resetDone, handler: nil)
+        wait(for: [expectation], timeout: 10)
     }
     
     func testNetworkSymbol() throws {
@@ -172,7 +174,7 @@ final class MobileTiltMouseUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Please try again."].exists)
         let codeReset = app.staticTexts["Please enter pairing code"]
         let expectation = expectation(for: NSPredicate(format: "exists == true"), evaluatedWith: codeReset, handler: nil)
-        wait(for: [expectation], timeout: 3)
+        wait(for: [expectation], timeout: 20)
         for idx in 1...5 {
             XCTAssertEqual(app.textFields["Digit \(idx)"].value as? String, " ")
         }

@@ -13,10 +13,10 @@ env:
 
 jobs:
   test:
+    name: Server - Build and Test
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-    name: Build and Test
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -39,5 +39,7 @@ jobs:
         run: sudo apt update && sudo apt install -y libxdo-dev xorg-dev libxcb-shape0-dev libxcb-xfixes0-dev clang avahi-daemon libavahi-client-dev
       - name: Build
         run: cargo build
+      - name: Lint
+        run: cargo clippy --all-targets --all-features -- -Dwarnings
       - name: Run unit tests
         run: cargo test --lib

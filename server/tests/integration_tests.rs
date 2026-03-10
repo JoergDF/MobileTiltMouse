@@ -86,14 +86,15 @@ fn test_android_receive_button_clicks() {
         panic!("OS not supported")
     };
 
-    // start the Android emulator
+    // start the Android emulator, its process will be killed at end of test
+    #[allow(clippy::zombie_processes)]
     let mut emulator_process = Command::new(emulator_path)
     .args(["-avd", ANDROID_EMULATOR_DEVICE])
     .spawn()
     .expect("Failed to execute Android emulator.");
 
     // wait for the emulator to start
-    thread::sleep(Duration::from_secs(10));
+    thread::sleep(Duration::from_secs(20));
 
     // run the Android counterpart of the integration test
     let mut gradlew_process = Command::new("../AppAndroid/gradlew")

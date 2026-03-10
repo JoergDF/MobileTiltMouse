@@ -222,12 +222,10 @@ mod tests {
             button_pressed: ButtonPressed::default(),
         };
 
-        let mc = MouseControl {
+        MouseControl {
             mouse: mock_mouse,
             button_pressed: ButtonPressed::default(),
-        };
-
-        return mc;
+        }
     }
 
 
@@ -325,71 +323,71 @@ mod tests {
 
         // press left button
         mc.mouse_action([0x20, 0x00, 0x00]);
-        assert_eq!(mc.mouse.button_pressed.left, true);
-        assert_eq!(mc.button_pressed.left, true);
+        assert!(mc.mouse.button_pressed.left);
+        assert!(mc.button_pressed.left);
 
         // press again, no release before
         mc.mouse.button_pressed.left = false;
         mc.mouse_action([0x20, 0x00, 0x00]);
-        assert_eq!(mc.mouse.button_pressed.left, false);
-        assert_eq!(mc.button_pressed.left, true);
+        assert!(!mc.mouse.button_pressed.left);
+        assert!(mc.button_pressed.left);
 
         // release left button
         mc.mouse_action([0x20, 0x00, 0x01]);
-        assert_eq!(mc.mouse.button_pressed.left, false); 
-        assert_eq!(mc.button_pressed.left, false);
+        assert!(!mc.mouse.button_pressed.left); 
+        assert!(!mc.button_pressed.left);
         
         // release again, no press before
         mc.mouse.button_pressed.left = true;
         mc.mouse_action([0x20, 0x00, 0x01]);
-        assert_eq!(mc.mouse.button_pressed.left, true);
-        assert_eq!(mc.button_pressed.left, false);
+        assert!(mc.mouse.button_pressed.left);
+        assert!(!mc.button_pressed.left);
         
 
         // press middle button
         mc.mouse_action([0x20, 0x00, 0x02]);
-        assert_eq!(mc.mouse.button_pressed.middle, true);
-        assert_eq!(mc.button_pressed.middle, true);
+        assert!(mc.mouse.button_pressed.middle);
+        assert!(mc.button_pressed.middle);
 
         // press again, no release before
         mc.mouse.button_pressed.middle = false;
         mc.mouse_action([0x20, 0x00, 0x02]);
-        assert_eq!(mc.mouse.button_pressed.middle, false);  // unchanged
-        assert_eq!(mc.button_pressed.middle, true);
+        assert!(!mc.mouse.button_pressed.middle);  // unchanged
+        assert!(mc.button_pressed.middle);
 
         // release middle button
         mc.mouse_action([0x20, 0x00, 0x03]);
-        assert_eq!(mc.mouse.button_pressed.middle, false); 
-        assert_eq!(mc.button_pressed.middle, false);
+        assert!(!mc.mouse.button_pressed.middle); 
+        assert!(!mc.button_pressed.middle);
         
         // release again, no press before
         mc.mouse.button_pressed.middle = true;
         mc.mouse_action([0x20, 0x00, 0x03]);
-        assert_eq!(mc.mouse.button_pressed.middle, true); // unchanged
-        assert_eq!(mc.button_pressed.middle, false);
+        assert!(mc.mouse.button_pressed.middle); // unchanged
+        assert!(!mc.button_pressed.middle);
 
 
         // press right button
         mc.mouse_action([0x20, 0x00, 0x04]);
-        assert_eq!(mc.mouse.button_pressed.right, true);
-        assert_eq!(mc.button_pressed.right, true);
+        assert!(mc.mouse.button_pressed.right);
+        assert!(mc.button_pressed.right);
 
         // press again, no release before
         mc.mouse.button_pressed.right = false;
         mc.mouse_action([0x20, 0x00, 0x04]);
-        assert_eq!(mc.mouse.button_pressed.right, false);  // unchanged
-        assert_eq!(mc.button_pressed.right, true);
+        assert!(!mc.mouse.button_pressed.right);  // unchanged
+        assert!(mc.button_pressed.right);
 
         // release right button
         mc.mouse_action([0x20, 0x00, 0x05]);
-        assert_eq!(mc.mouse.button_pressed.right, false); 
-        assert_eq!(mc.button_pressed.right, false);
+        assert!(!mc.mouse.button_pressed.right); 
+        assert!(!mc.button_pressed.right);
         
         // release again, no press before
         mc.mouse.button_pressed.right = true;
         mc.mouse_action([0x20, 0x00, 0x05]);
-        assert_eq!(mc.mouse.button_pressed.right, true); // unchanged
-        assert_eq!(mc.button_pressed.right, false);
+        assert!(mc.mouse.button_pressed.right); // unchanged
+        assert!(!mc.button_pressed.right);
     }
 
 }

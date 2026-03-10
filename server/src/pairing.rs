@@ -545,21 +545,17 @@ impl Crypto {
     /// * Err on invalid input lengths or other errors.
     pub fn decrypt(&self, key: &[u8], combined_data: &[u8]) -> Result<Option<Vec<u8>>> {
         // get info, nonce and encrypted data from input
-        let info: [u8; 12] = combined_data[0..12].try_into()?;
-        let nonce: [u8; 12] = combined_data[12..24].try_into()?; 
-        let encrypted_data: Vec<u8> = combined_data[24..].into(); 
+        let info = &combined_data[0..12];
+        let nonce = &combined_data[12..24];
+        let encrypted_data = &combined_data[24..];
 
         let mut okm = Zeroizing::new([0u8; 32]); // output key material
-        self.key_derivation(key, &info, okm.as_mut())?;
+        self.key_derivation(key, info, okm.as_mut())?;
 
         // decrypt data
         let cipher = Aes256GcmSiv::new_from_slice(okm.as_ref())?;
-        let nonce_cipher = Nonce::from(nonce);
-        // let decrypted_data = match cipher.decrypt(&nonce_cipher, encrypted_data.as_slice()) {
-        //     Ok(data) => Some(data),
-        //     _ => None,
-        // };
-        let decrypted_data = cipher.decrypt(&nonce_cipher, encrypted_data.as_slice()).ok();
+        let nonce_cipher = Nonce::from_slice(nonce);
+        let decrypted_data = cipher.decrypt(nonce_cipher, encrypted_data).ok();
         Ok(decrypted_data)
     }
 
@@ -700,7 +696,7 @@ mod tests {
         let decrypt_data = Crypto.decrypt(&key, &encrypt_data).unwrap().unwrap();
         assert_eq!(data, decrypt_data[0..32]);
 
-        // second encryption must produce different output pof the same input
+        // second encryption must produce different output of the same input
         let encrypt_data2 = Crypto.encrypt(&key, &data).unwrap();
         // info part must be different
         assert_ne!(encrypt_data[0..12], encrypt_data2[0..12]);
@@ -728,7 +724,7 @@ mod tests {
         assert_eq!(decrypt_data, None);
 
         // wrong key
-        let mut bad_key = key.clone();
+        let mut bad_key = key;
         bad_key[0] ^= 0xFF;
         let decrypt_data = Crypto.decrypt(&bad_key, &encrypt_data).unwrap();
         assert_eq!(decrypt_data, None);
@@ -811,7 +807,7 @@ mod tests {
         assert!(load_id(&key, filename).is_err());
 
         // file empty
-        fs::write(filename, &[]).unwrap();
+        fs::write(filename, []).unwrap();
         assert!(load_id(&key, filename).is_err());
 
         // cleanup
@@ -834,6 +830,7 @@ mod tests {
         assert!(save_id(&[1u8; 32], &[2u8; 32], &filename).is_err());
 
         // cleanup
+        #[allow(clippy::permissions_set_readonly_false)]
         permissions.set_readonly(false);
         fs::set_permissions(dir, permissions).unwrap();
         fs::remove_dir_all(dir).unwrap();
@@ -849,18 +846,18 @@ mod tests {
         let _ = std::fs::remove_file(filename);
 
         // 1. File doesn't exist
-        assert_eq!(is_client_id_known(&client_id, &key, filename).unwrap(), false);
+        assert!(!is_client_id_known(&client_id, &key, filename).unwrap());
 
         // 2. File exists, ID is known
         save_id(&client_id, &key, filename).unwrap();
-        assert_eq!(is_client_id_known(&client_id, &key, filename).unwrap(), true);
+        assert!(is_client_id_known(&client_id, &key, filename).unwrap());
 
         // 3. Known ID, but wrong key
-        assert_eq!(is_client_id_known(&client_id, &other_key, filename).unwrap(), false);
+        assert!(!is_client_id_known(&client_id, &other_key, filename).unwrap());
 
         // 4. Different ID, correct key
         let other_client_id: [u8; 32] = rand::random();
-        assert_eq!(is_client_id_known(&other_client_id, &key, filename).unwrap(), false);
+        assert!(!is_client_id_known(&other_client_id, &key, filename).unwrap());
 
         // cleanup
         let _ = std::fs::remove_file(filename);

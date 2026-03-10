@@ -9,7 +9,7 @@ on:
 
 jobs:
   test:
-    name: Build and Test
+    name: AppiOS - Build and Test
     runs-on: macos-latest
     defaults:
       run:
@@ -19,12 +19,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Create certificates
+        working-directory: ./server
+        run: cargo build  
+
       - name: Test
-        run: xcodebuild test -scheme MobileTiltMouse -destination "platform=iOS Simulator,name=iPhone 16" -only-testing MobileTiltMouseUITests/MobileTiltMouseUITests/testAlertError
+        run: xcodebuild test -scheme MobileTiltMouse -destination "platform=iOS Simulator,name=iPhone 17"  
+        # -only-testing MobileTiltMouseUITests/MobileTiltMouseUITests
     
-      
       - name: Archive test results
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: /Users/runner/Library/Developer/Xcode/DerivedData/MobileTiltMouse-*/Logs/Test/Test-MobileTiltMouse*.xcresult
+          
