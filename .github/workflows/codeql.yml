@@ -61,7 +61,7 @@ jobs:
         # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     # Add any setup steps before running the `github/codeql-action/init` action.
     # This includes steps like installing compilers or runtimes (`actions/setup-node`
@@ -94,7 +94,7 @@ jobs:
       working-directory: ./AppiOS
       run: |
           cd ../server && cargo build && cd -
-          xcodebuild
+          xcodebuild -scheme MobileTiltMouse -destination "generic/platform=iOS Simulator"
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4

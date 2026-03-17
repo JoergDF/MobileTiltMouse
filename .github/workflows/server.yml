@@ -14,6 +14,8 @@ env:
 jobs:
   test:
     name: Server - Build and Test
+    permissions:
+      contents: read
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
@@ -23,12 +25,12 @@ jobs:
         working-directory: ./server  
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Get rust version
         run: rustc --version --verbose
       - name: Get cargo version
         run: cargo --version --verbose
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index/
