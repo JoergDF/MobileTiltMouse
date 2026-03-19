@@ -5,19 +5,19 @@ updates:
     schedule:
       interval: "weekly"
     # Disable version updates, only security updates wanted
-    open-pull-requests-limit: 0
+    # open-pull-requests-limit: 0
   - package-ecosystem: "gradle"
     directory: "/AppAndroid"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 0
+    # open-pull-requests-limit: 0
   - package-ecosystem: "swift"
     directory: "/AppiOS"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 0
+    # open-pull-requests-limit: 0
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 0
+    # open-pull-requests-limit: 0
