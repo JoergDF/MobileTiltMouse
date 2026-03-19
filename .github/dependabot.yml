@@ -1,23 +1,27 @@
 version: 2
+
+multi-ecosystem-groups:
+  infrastructure:
+    schedule:
+      interval: "weekly"
+  # Disable version updates, only security updates wanted
+  # open-pull-requests-limit: 0
+
 updates:
   - package-ecosystem: "cargo"
     directory: "/server"
-    schedule:
-      interval: "weekly"
-    # Disable version updates, only security updates wanted
-    # open-pull-requests-limit: 0
+    patterns: ["*"]
+    multi-ecosystem-group: "infrastructure"
   - package-ecosystem: "gradle"
     directory: "/AppAndroid"
-    schedule:
-      interval: "weekly"
-    # open-pull-requests-limit: 0
-  - package-ecosystem: "swift"
-    directory: "/AppiOS"
-    schedule:
-      interval: "weekly"
-    # open-pull-requests-limit: 0
+    patterns: ["*"]
+    multi-ecosystem-group: "infrastructure"
+  # - package-ecosystem: "swift"
+  #   directory: "/AppiOS"
+  #   patterns: ["*"]
+  #   multi-ecosystem-group: "infrastructure"
   - package-ecosystem: "github-actions"
     directory: "/"
-    schedule:
-      interval: "weekly"
-    # open-pull-requests-limit: 0
+    patterns: ["*"]
+    multi-ecosystem-group: "infrastructure"
+
