@@ -3,8 +3,12 @@ name: AppAndroid CI
 on:
   push:
     branches: [ "main" ]
+    paths:
+      - 'AppAndroid/**'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - 'AppAndroid/**'    
   workflow_dispatch:
 
 jobs:

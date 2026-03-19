@@ -3,8 +3,12 @@ name: AppiOS CI
 on:
   push:
     branches: [ "main" ]
+    paths:
+      - 'AppiOS/**'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - 'AppiOS/**'
   workflow_dispatch:
 
 jobs:
