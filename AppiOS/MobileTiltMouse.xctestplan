@@ -15,11 +15,13 @@
       }
     ],
     "maximumTestRepetitions" : 3,
+    "repeatInNewRunnerProcess" : true,
     "targetForVariableExpansion" : {
       "containerPath" : "container:MobileTiltMouse.xcodeproj",
       "identifier" : "DE415FE12DEA18B8006542F4",
       "name" : "MobileTiltMouse"
-    }
+    },
+    "testRepetitionMode" : "retryOnFailure"
   },
   "testTargets" : [
     {

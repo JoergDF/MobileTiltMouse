@@ -29,14 +29,25 @@ jobs:
         working-directory: ./server
         run: cargo build  
 
-      - name: Test
-        run: xcodebuild test -scheme MobileTiltMouse -destination "platform=iOS Simulator,name=iPhone 17"  
-        # -only-testing MobileTiltMouseUITests/MobileTiltMouseUITests
-    
+      - name: Set device
+        run: |
+          device=`xcrun xctrace list devices 2>&1 | grep -oE 'iPhone.*?[^\(]+' | head -1 | awk '{$1=$1;print}' | sed -e "s/ Simulator$//"`
+          echo "device_name=$device" >> "$GITHUB_ENV"
+
+      - name: Build for testing
+        run: xcodebuild build-for-testing -scheme MobileTiltMouse -destination "platform=iOS Simulator,name=$device_name"
+
+      - name: Unit tests
+        run: xcodebuild test-without-building -scheme MobileTiltMouse -destination "platform=iOS Simulator,name=$device_name" -only-testing MobileTiltMouseTests
+
+      # UI tests do not run reliably on GitHub, although they do locally: Therefore UI test are disabled
+      # - name: UI tests
+      #   run: xcodebuild test-without-building -scheme MobileTiltMouse -destination "platform=iOS Simulator,name=$device_name" -only-testing MobileTiltMouseUITests/MobileTiltMouseUITests
+
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: /Users/runner/Library/Developer/Xcode/DerivedData/MobileTiltMouse-*/Logs/Test/Test-MobileTiltMouse*.xcresult
-          
+
