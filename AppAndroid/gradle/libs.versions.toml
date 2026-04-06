@@ -12,7 +12,7 @@ kwik = "0.10.8"
 kwik_tls = "3.1"
 datastore = "1.2.1"
 coroutinetest = "1.10.2"
-mockito_kotlin = "6.2.3"
+mockito_kotlin = "6.3.0"
 material3 = "1.4.0"
 
 [libraries]
