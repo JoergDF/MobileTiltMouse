@@ -1,7 +1,8 @@
+use p12_keystore::PrivateKey;
 use rcgen::{CertifiedKey, RsaKeySize, generate_simple_self_signed, CertificateParams, Certificate, KeyPair, PKCS_RSA_SHA256};
 use std::path::{Path, PathBuf};
 use std::fs;
-use p12_keystore::{PrivateKeyChain, KeyStore, KeyStoreEntry, EncryptionAlgorithm::PbeWithShaAnd3KeyTripleDesCbc, MacAlgorithm::HmacSha1};
+use p12_keystore::{PrivateKeyChain, KeyStore, LocalKeyId, KeyStoreEntry, EncryptionAlgorithm::PbeWithShaAnd3KeyTripleDesCbc, MacAlgorithm::HmacSha1};
 use sha2::{Digest, Sha256, Sha512};
 use rand_core::{SeedableRng, Rng};
 use rand_pcg::Pcg64Mcg;
@@ -90,7 +91,10 @@ fn add_keystore_entry(mut key_store: KeyStore, cert: &Certificate, key: &KeyPair
 	let ks_cert = p12_keystore::Certificate::from_der(cert.der()).unwrap();
 	let ks_key = key.serialized_der();
 	let local_key_id: [u8; 20] = rand::random();
-	let key_chain = PrivateKeyChain::new(ks_key, local_key_id, [ks_cert]);
+	let key_chain = PrivateKeyChain::new(
+		LocalKeyId::from(local_key_id.to_vec()), 
+		PrivateKey::from_der( ks_key).unwrap(),
+		[ks_cert]);
 	key_store.add_entry("entry", KeyStoreEntry::PrivateKeyChain(key_chain));
 	key_store
 }

@@ -4,7 +4,7 @@ use rustls::client::danger::HandshakeSignatureValid;
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
-use p12_keystore::KeyStore;
+use p12_keystore::{KeyStore, Pkcs12ImportPolicy};
 use sha2::{Sha256, Sha512, Digest};
 use rand_core::{SeedableRng, Rng};
 use rand_pcg::Pcg64Mcg;
@@ -222,10 +222,10 @@ fn configure_server() -> Result<ServerConfig> {
 	let dat = hasher.finalize();
 	let dat_str = dat.encode_hex::<String>();
 
-    let keystore = KeyStore::from_pkcs12(SERVER_CERT_P12, &dat_str)?;
+    let keystore = KeyStore::from_pkcs12(SERVER_CERT_P12, &dat_str, Pkcs12ImportPolicy::Strict)?;
     let key_chain = keystore.private_key_chain().unwrap().1;
-    let cert_der = CertificateDer::from(key_chain.chain()[0].as_der()).into_owned();
-    let priv_key_der = PrivateKeyDer::try_from(key_chain.key())?.clone_key();
+    let cert_der = CertificateDer::from(key_chain.certs()[0].as_der()).into_owned();
+    let priv_key_der = PrivateKeyDer::try_from(key_chain.key().as_der())?.clone_key();
 
     let mut server_crypto = rustls::ServerConfig::builder()
         .with_client_cert_verifier(Arc::new(ClientCert))

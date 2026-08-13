@@ -2,9 +2,10 @@ use quinn::{RecvStream, SendStream};
 use tokio::time::{sleep, Duration};
 use sha2::{Sha256, Digest};
 use hkdf::Hkdf;
-use rand::RngExt;
+use rand::{RngExt, TryRng};
+use rand::rngs::SysRng;
 use aes_gcm_siv::{
-    aead::{rand_core::RngCore, Aead, KeyInit, OsRng}, AeadCore, Aes256GcmSiv, Nonce 
+    aead::{Aead, Generate, KeyInit}, Aes256GcmSiv, Nonce 
 };
 use zeroize::{Zeroize, Zeroizing};
 use std::fs;
@@ -511,14 +512,14 @@ impl Crypto {
         let mut okm = Zeroizing::new([0u8; 32]); // output key material
 
         // create random info for HKDF
-        OsRng.fill_bytes(&mut info);
+        SysRng.try_fill_bytes(&mut info)?;
         
         // derive a different random key for each encryption
         self.key_derivation(key, &info, okm.as_mut())?;
 
         // encrypt data
         let cipher = Aes256GcmSiv::new_from_slice(okm.as_ref())?; // okm must not be longer than 32 bytes
-        let nonce = Aes256GcmSiv::generate_nonce(OsRng);
+        let nonce = Nonce::generate();
         let encrypted_data = cipher.encrypt(&nonce, data)
             .map_err(|e| format!("Failed to encrypt data: {:?}", e))?;
 
@@ -554,8 +555,8 @@ impl Crypto {
 
         // decrypt data
         let cipher = Aes256GcmSiv::new_from_slice(okm.as_ref())?;
-        let nonce_cipher = Nonce::from_slice(nonce);
-        let decrypted_data = cipher.decrypt(nonce_cipher, encrypted_data).ok();
+        let nonce_cipher = Nonce::try_from(nonce)?;
+        let decrypted_data = cipher.decrypt(&nonce_cipher, encrypted_data).ok();
         Ok(decrypted_data)
     }
 
