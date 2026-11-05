@@ -12,9 +12,13 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
-use zeroconf::prelude::*;
-use zeroconf::{MdnsService, ServiceType};
 use hex::{FromHex, ToHex};
+#[cfg(target_os = "macos")]
+use zeroconf::{prelude::*, MdnsService, ServiceType};
+#[cfg(not(target_os = "macos"))]
+use mdns_sd::{ServiceDaemon, ServiceInfo}; 
+
+
 
 mod mouse_control;
 mod pairing;
@@ -60,7 +64,6 @@ const CLIENT_CERT_HASH: &str = include_str!(concat!(env!("OUT_DIR"), "/client_ce
 /// Returns `Ok(())` upon successful initialization. The server itself runs indefinitely.
 /// 
 /// # Errors
-/// 
 /// An `Err` is returned if there is a failure during the initial setup of the server
 /// or the mDNS service.
 #[tokio::main]
@@ -74,10 +77,9 @@ pub async fn connection_handler(test: bool) -> Result<()> {
     let endpoint = Endpoint::server(server_config, server_addr)?;
     println!("My address {:?}", endpoint.local_addr()?);
 
-    // bonjour
-    let service_type = ServiceType::new("mobiletiltmouse", "udp")?;
-    let mut service = MdnsService::new(service_type, endpoint.local_addr()?.port()); 
-    service.register()?;
+    // start mDNS/Bonjour service
+    // assign return value to a variable for keeping it running
+    let _mdns = start_mdns(&endpoint)?;
 
     while let Some(conn) = endpoint.accept().await { 
         println!("Endpoint accepted");
@@ -115,6 +117,68 @@ pub async fn connection_handler(test: bool) -> Result<()> {
     Ok(())
 }
 
+/// Registers Bonjour service on MacOS
+/// 
+/// Uses existing Bonjour service of MacOS to make it discoverable in local network.
+/// 
+/// # Arguments
+/// * `endpoint` - QUIC endpoint of quinn
+/// 
+/// # Returns
+/// `Ok((service))` if successful, return service
+/// 
+/// # Errors
+/// Service initialization or start fails
+#[cfg(target_os = "macos")]
+fn start_mdns(endpoint: &Endpoint) -> Result<MdnsService> {
+    let service_type = ServiceType::new("mobiletiltmouse", "udp")?;
+    let mut service = MdnsService::new(service_type, endpoint.local_addr()?.port()); 
+    service.register()?;
+    Ok(service)
+}
+
+/// Registers mDNS service on Linux/Windows
+/// 
+/// Creates its own mDNS daemon to make it discoverable in local network.
+/// 
+/// # Arguments
+/// * `endpoint` - QUIC endpoint of quinn
+/// 
+/// # Returns
+/// `Ok((mdns))` if successful, return mdns to be able to keep it alive
+/// 
+/// # Errors
+/// Service initialization or start fails
+#[cfg(not(target_os = "macos"))]
+fn start_mdns(endpoint: &Endpoint) -> Result<ServiceDaemon> {
+    use hostname;
+
+    let mdns = ServiceDaemon::new()?;
+    
+    let service_type = "_mobiletiltmouse._udp.local.";
+    let instance_name = "mtm_instance"; 
+    let os_hostname =  hostname::get()?.into_string()
+        .map_err(|e| format!("Failed to get hostname: {:?}", e))?;
+    let host_name = if os_hostname.ends_with(".local.") {
+        os_hostname
+    } else if os_hostname.ends_with(".local") {
+        os_hostname + "."
+    } else {
+        os_hostname + ".local."
+    };
+    let mut service_info = ServiceInfo::new(
+        service_type,
+        &instance_name,
+        &host_name,
+        endpoint.local_addr()?.ip(),
+        endpoint.local_addr()?.port(),
+        None
+    )?.enable_addr_auto();
+    service_info.set_link_local_only(true);
+
+    mdns.register(service_info)?;
+    Ok(mdns)
+}
 
 /// A custom client certificate verifier for the QUIC server.
 ///

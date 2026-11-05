@@ -16,34 +16,21 @@ Tested on MacOS, Linux (with X11) and Windows.
 
 ## Installation
 
-1. Prerequisites: \
-   Dependencies to crates [enigo](https://github.com/enigo-rs/enigo) and [zeroconf](https://github.com/windy1/zeroconf-rs) require the installation of additional packages:
-    - MacOS: None
-    - Linux: \
-      Use X11, not Wayland. Install:
+1. Prerequisites:  
+   Dependencies to crate [enigo](https://github.com/enigo-rs/enigo) and others require the installation of additional packages and the configuration of the environment:
+    - MacOS:  
+      None
+    - Linux:  
+      Use **X11**, not Wayland.  
+      Install:
       ```
-      sudo apt update && sudo apt install libxdo-dev xorg-dev libxcb-shape0-dev libxcb-xfixes0-dev clang avahi-daemon libavahi-client-dev
+      sudo apt update && sudo apt install libxdo-dev
       ```
-    - Windows: \
-      If you [install Visual Studio for using Rust](https://rust-lang.github.io/rustup/installation/windows-msvc.html), also select manually (both) `clang` components for installation.
-      For Bonjour install iTunes or Bonjour Print Services or just:
-      ```
-      winget install Apple.Bonjour
-      ```
-      - Windows x64: \
-        Set environment variable to a directory containing x64-version of `libclang.dll` (required by [bindgen](https://github.com/rust-lang/rust-bindgen)). For Visual Studio 2026 Community Edition it is:
-        ```
-        set LIBCLANG_PATH=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin
-        ```
-      - Windows Arm64: \
-        Set environment variable to a directory containing Arm64-version of `libclang.dll` (required by [bindgen](https://github.com/rust-lang/rust-bindgen)). For Visual Studio 2026 Community Edition it is:
-        ```
-        set LIBCLANG_PATH=C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\ARM64\bin
-        ```
-        Prepare for cross compilation for Windows x64 (because of Bonjour):
-        ```
-        rustup target add x86_64-pc-windows-msvc
-        ```
+    - Windows:  
+      If you use Visual Studio for Rust, select `clang` components for installation. And add directory of `clang-cl.exe` to the environment variable PATH: 
+      For Visual Studio 2026 Community Edition it is (on x86) `C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin`
+      or (on Arm64) `C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\ARM64\bin`.
+
     
 
 1. Clone the repository:
@@ -53,14 +40,8 @@ Tested on MacOS, Linux (with X11) and Windows.
    ```
 
 1. Build and run the application:
-   - MacOS, Linux, Windows x64:
      ```
      cargo run
-     ```
-   - Windows Arm64: \
-     Cross compilation for Windows x64 is required because of Bonjour package.
-     ```
-     cargo run --target x86_64-pc-windows-msvc
      ```
 
 ## Usage
@@ -202,7 +183,8 @@ This project uses the following libraries:
 - [quinn](https://crates.io/crates/quinn) – QUIC protocol implementation
 - [rustls](https://crates.io/crates/rustls) - TLS configuration
 - [tokio](https://crates.io/crates/tokio) - connection handling
-- [zeroconf](https://crates.io/crates/zeroconf) - Bonjour/mDNS service
+- [zeroconf](https://crates.io/crates/zeroconf) - Bonjour/mDNS service on MacOS
+- [mdns_sd](https://crates.io/crates/mdns-sd) - mDNS service on Linux/Windows
 - [hex](https://crates.io/crates/hex) - hex conversion in certificate handling 
 - [sha2](https://crates.io/crates/sha2) - client certificate check with RustCrypto's hashes, creating PKCS#12 certificate
 - [aes-gcm-siv](https://crates.io/crates/aes-gcm-siv) - encrypted storage of server and client IDs

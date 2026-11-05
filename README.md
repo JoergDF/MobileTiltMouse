@@ -2,6 +2,10 @@
 # <img src="images/app_icon/icon_mtm_ios.png" alt="App Icon" style="width:5%; height:auto;"> MobileTiltMouse
 Transform your phone into a wireless mouse for your computer. The [iOS app](./AppiOS/) or [Android app](./AppAndroid/) establishes a secure connection via WiFi to a [server application](./server/) running on your computer in your local network. Simply incline your phone to move the mouse - the mouse pointer responds smoothly to the angle and tilt of your phone, providing natural and precise control. Perfect for presentations, media control, or whenever a traditional mouse isn't handy.
 
+More details about each implementation can be found in the README files of each application: 
+- [server (Rust)](./server/README.md)
+- [iOS app (Swift)](./AppiOS/README.md)
+- [Android app (Kotlin)](./AppAndroid/README.md)
 
 ## Features
 
