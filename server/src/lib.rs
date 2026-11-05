@@ -168,7 +168,7 @@ fn start_mdns(endpoint: &Endpoint) -> Result<ServiceDaemon> {
     };
     let mut service_info = ServiceInfo::new(
         service_type,
-        &instance_name,
+        instance_name,
         &host_name,
         endpoint.local_addr()?.ip(),
         endpoint.local_addr()?.port(),
