@@ -42,7 +42,7 @@ jobs:
           key: server-${{ runner.os }}-${{ hashFiles('**/server/Cargo.lock') }}
       - if: runner.os == 'Linux'
         name: Install additional packages
-        run: sudo apt update && sudo apt install -y libxdo-dev
+        run: sudo apt update && sudo apt install -y libxdo-dev libxtst-dev libx11-dev libxi-dev
       - name: Build
         run: cargo build
       - name: Lint
